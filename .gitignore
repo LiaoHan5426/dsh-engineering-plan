@@ -1,0 +1,13 @@
+node_modules/
+.dsh/
+.dsh-meow/
+.archify/
+coverage/
+dist/
+*.log
+*.tgz
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db

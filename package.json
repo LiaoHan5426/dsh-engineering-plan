@@ -1,0 +1,16 @@
+{
+  "name": "@local/dsh-engineering-planner",
+  "version": "0.2.0",
+  "description": "Versioned engineering plans, dependency tasks and acceptance evidence inside DSH.",
+  "private": true,
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/LiaoHan5426/dsh-engineering-plan.git" },
+  "homepage": "https://github.com/LiaoHan5426/dsh-engineering-plan#readme",
+  "bugs": { "url": "https://github.com/LiaoHan5426/dsh-engineering-plan/issues" },
+  "type": "module",
+  "engines": { "node": ">=22", "dsh": "0.2.2-rc.5" },
+  "exports": { ".": "./index.js", "./client": "./client.js", "./icon": "./icon.svg", "./locale/*.json": "./locale/*.json" },
+  "files": ["index.js", "client.js", "src", "skills", "cordis.patch.yml", "locale", "icon.svg", "README.md", "docs"],
+  "scripts": { "test": "node --test tests/*.test.js", "check": "node --check index.js && node --check client.js && node --check src/core.js" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web", "immediately": true, "inject": ["@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-commands"] } }
+}
