@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Engineering planner",
+    "title": "Engineering workbench",
     "description": "Manage versioned specifications, dependency tasks, human review and acceptance evidence in the conversation engineering view. Plans persist per workspace with recovery summaries and Markdown exports. Execution uses existing DSH tools; evidence is attributed self-report."
   }
 }

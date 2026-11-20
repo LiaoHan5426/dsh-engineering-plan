@@ -15,4 +15,22 @@ for (const lang of ['en', 'zh']) {
 if (!p.exports['./client'] || !p.exports['./icon'] || !p.exports['./locale/*.json'] || !p.dsh?.bundle?.patch) throw new Error('Missing manifest export');
 const icon = await fs.readFile(path.join(root, 'icon.svg'), 'utf8');
 if (!icon.startsWith('<svg ') || !icon.includes('viewBox="0 0 36 36"') || /<script|<image|<foreignObject|href=/.test(icon) || Buffer.byteLength(icon) > 256 * 1024) throw new Error('Unexpected SVG');
-console.log('Package resources, exports and bilingual metadata validated. Rendered UI/icon pending host verification.');
+const packaged = relative => p.files.some(entry => relative === entry || relative.startsWith(entry.replace(/\/$/, '') + '/'));
+const visited = new Set();
+async function inspectModule(relative) {
+  if (visited.has(relative)) return;
+  if (!packaged(relative)) throw new Error('Runtime module excluded from package: ' + relative);
+  visited.add(relative);
+  const source = await fs.readFile(path.join(root, relative), 'utf8');
+  for (const match of source.matchAll(/(?:import|export)\s[^;]*?\bfrom\s*['"](\.[^'"]+)['"]/g)) {
+    const target = path.posix.normalize(path.posix.join(path.posix.dirname(relative), match[1]));
+    if (target.startsWith('../')) throw new Error('Runtime import escapes package: ' + target);
+    await inspectModule(target);
+  }
+}
+await inspectModule('index.js');
+for (const target of ['client.js', 'assets/mermaid-11.17.2.min.js', 'assets/mermaid-LICENSE', 'scripts/embed-mermaid.mjs', 'scripts/embed-git-comparison.mjs']) {
+  if (!packaged(target)) throw new Error('Client resource excluded from package: ' + target);
+  await fs.access(path.join(root, target));
+}
+console.log(`Package resources, ${visited.size} static Host modules, offline renderer and bilingual metadata validated. This check does not establish runtime or visual acceptance.`);

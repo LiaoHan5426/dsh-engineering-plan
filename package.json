@@ -1,16 +1,64 @@
 {
   "name": "@local/dsh-engineering-planner",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Versioned engineering plans, dependency tasks and acceptance evidence inside DSH.",
   "private": true,
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/LiaoHan5426/dsh-engineering-plan.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LiaoHan5426/dsh-engineering-plan.git"
+  },
   "homepage": "https://github.com/LiaoHan5426/dsh-engineering-plan#readme",
-  "bugs": { "url": "https://github.com/LiaoHan5426/dsh-engineering-plan/issues" },
+  "bugs": {
+    "url": "https://github.com/LiaoHan5426/dsh-engineering-plan/issues"
+  },
   "type": "module",
-  "engines": { "node": ">=22", "dsh": "0.2.2-rc.5" },
-  "exports": { ".": "./index.js", "./client": "./client.js", "./icon": "./icon.svg", "./locale/*.json": "./locale/*.json" },
-  "files": ["index.js", "client.js", "src", "skills", "cordis.patch.yml", "locale", "icon.svg", "README.md", "docs"],
-  "scripts": { "test": "node --test tests/*.test.js", "check": "node --check index.js && node --check client.js && node --check src/core.js" },
-  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web", "immediately": true, "inject": ["@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-commands"] } }
+  "engines": {
+    "node": ">=22",
+    "dsh": "0.2.2-rc.5"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src",
+    "skills",
+    "assets",
+    "scripts/embed-mermaid.mjs",
+    "scripts/embed-git-comparison.mjs",
+    "scripts/check-syntax.mjs",
+    "cordis.patch.yml",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "docs",
+    "scripts/check-doc-counts.mjs",
+    "scripts/check-locale-keys.mjs",
+    "scripts/check-declaration-order.mjs"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check-syntax.mjs && node scripts/check-locale-keys.mjs && node scripts/check-declaration-order.mjs",
+    "check:counts": "node scripts/check-doc-counts.mjs",
+    "check:keys": "node scripts/check-locale-keys.mjs",
+    "check:order": "node scripts/check-declaration-order.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-commands"
+      ]
+    }
+  }
 }
