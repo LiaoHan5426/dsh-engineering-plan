@@ -21,6 +21,7 @@ const allowed = new Set([
   'README.md',
   'client.js',
   'cordis.patch.yml',
+  'design',
   'docs',
   'icon.svg',
   'index.js',

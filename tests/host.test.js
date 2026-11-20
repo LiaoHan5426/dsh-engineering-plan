@@ -138,3 +138,30 @@ test('the Mermaid loader reads the packaged asset through the Host without a cli
   assert.equal(await loadMermaid(request), vendor);
   assert.equal(await loadMermaid(() => assert.fail('Expected cached asset')), vendor);
 });
+
+test('workbench Remote reads load plans and reject writes without invoking commands', async t => {
+  const { ctx } = await setup(t);
+  const services = new Map();
+  let commandCalls = 0;
+  ctx.set = () => assert.fail("Services must be registered with provide");
+  ctx.provide = (name, value) => {
+    assert.equal(services.has(name), false);
+    services.set(name, value);
+  };
+  ctx.effect = fn => fn();
+  ctx.skills = { register() {} };
+  ctx.tools = { register() {} };
+  ctx.commands = { register() { commandCalls++; } };
+  apply(ctx);
+  const reader = services.get('engineeringReader');
+  const agent = { id: 'reader', session: { id: 'reader' } };
+  const signal = new AbortController().signal;
+  const execute = createOperations(ctx);
+  const { change } = await execute({ action: 'create', title: 'Read', goal: 'Read' }, agent, 'user');
+  const registrations = commandCalls;
+  assert.equal((await reader.query(agent, { action: 'get', changeId: change.id }, signal)).change.id, change.id);
+  assert.equal((await reader.query(agent, { action: 'list' }, signal)).changes.length, 1);
+  await assert.rejects(reader.query(agent, { action: 'save' }, signal), /INVALID_INPUT/);
+  await assert.rejects(reader.query(agent, { action: 'list' }, AbortSignal.abort()));
+  assert.equal(commandCalls, registrations);
+});

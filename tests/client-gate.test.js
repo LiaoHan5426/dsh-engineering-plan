@@ -43,11 +43,14 @@ test('blocker details are stable and skip empty fields', () => {
 });
 
 test('the quality gate shows the core verdict and blocks acceptance on a fresh "not ready"', () => {
-  assert.match(source, /h\("h4", null, t\("gateTitle"\)\)/);
+  assert.match(source, /t\(gate.ready \? "gateReady" : "gateBlocked"\)/);
   assert.match(source, /gate && !gateMatches\(gate, change\) && h\("p", \{ className: "ep-warn" \}, t\("gateStale"\)\)/);
   assert.match(source, /const freshGateBlocked = !!gate && gateMatches\(gate, change\) && !gate\.ready;/);
-  assert.match(source, /if \(!eligible \|\| freshGateBlocked \|\| !confirmation\.confirmed/);
-  assert.match(source, /}, !eligible \|\| freshGateBlocked \|\| !confirmation\.confirmed \|\| !delivery\.note\.trim\(\)\)/);
+  assert.match(source, /if \(busy \|\| !eligible \|\| freshGateBlocked\) return;/);
+  assert.match(source, /busy \|\| !eligible \|\| freshGateBlocked, true, \{ "data-reason": deliverReason \|\| t\("deliveryPending"\) \}\)/);
+  // The disabled reason is stated before the button, not only mirrored into its title.
+  assert.match(source, /const deliverReason = busy/);
+  assert.match(source, /className: "ep-deliver-bar"/);
 });
 
 test('the gate is refreshed together with run records, not polled separately', () => {

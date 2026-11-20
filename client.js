@@ -51,12 +51,29 @@ window.__ModuleLoader__.load({
       changeActions: ["方案操作", "Plan actions"],
       editPlanning: ["编辑规划", "Edit plan"],
       finishEditing: ["结束编辑", "Finish editing"],
+      planSectionsReady: ["项已就绪", "sections ready"],
+      gateBlockerApproval: ["方案尚未被用户批准", "the plan is not approved yet"],
+      gateBlockerTaskNotTerminal: ["仍有任务未进入终态", "some tasks are not terminal"],
+      gateBlockerActiveRun: ["有正在执行的运行", "a run is still active"],
+      gateBlockerUnknown: ["有未处理的不确定项", "unresolved unknowns remain"],
+      gateBlockerNoCompleted: ["还没有已完成的任务", "no task has completed yet"],
+      gateBlockerMissingEvidence: ["有验收标准缺少证据", "some criteria lack evidence"],
       readyForReview: ["待评审", "Ready for review"],
       reviseWithAgent: ["请求修改本节", "Request edits to this section"],
       reviewPlan: ["评审方案", "Review plan"],
-      advancedInfo: ["高级信息与诊断", "Advanced information and diagnostics"],
+      noFilteredTasks: ["该状态下暂无任务。", "No tasks in this status."],
       allStatuses: ["全部状态", "All statuses"],
+      humanReview: ["人工审核", "Human review"],
+      deliveryButtonNote: ["用户在质量门禁中确认当前版本交付。", "User accepted the current delivery in the quality gate."],
+      taskGoal: ["任务目标", "Task goal"],
+      taskFiles: ["交付文件", "Deliverable files"],
+      taskAcceptance: ["验收结果", "Acceptance results"],
+      taskChecks: ["验证记录", "Verification records"],
+      taskDependencies: ["前置任务", "Prerequisites"],
       taskDetails: ["任务详情", "Task details"],
+      taskOpenDetail: ["打开详情", "Open detail"],
+      taskClose: ["关闭", "Close"],
+      notStarted: ["未开始", "Not started"],
       nextTask: ["下一项依赖已满足的任务", "Next task with dependencies met"],
       blockedCount: ["阻塞任务", "Blocked tasks"],
       waitingForPlan: ["正在等待对话写入方案", "Waiting for the conversation to save the plan"],
@@ -485,6 +502,14 @@ window.__ModuleLoader__.load({
       requestVerify: ["质量验证请求", "Quality verification request"],
       title: ["工程研发工作台", "Engineering workbench"],
       entry: ["工程研发", "Engineering"],
+      qualityTools: ["补充验证与人工补录", "Additional verification and manual records"],
+      qualityRecords: ["执行记录", "Execution records"],
+      qualityArchive: ["历史与参考资料", "History and references"],
+      manualTools: ["手动调整与补录", "Manual adjustments"],
+      verifyRequestTools: ["请求补充验证", "Request verification"],
+      chooseChange: ["选择研发计划", "Choose a plan"],
+      design: ["架构设计", "Architecture"],
+      emptyDesign: ["选择变更后查看架构图、模块边界和设计决策。", "Select a change to explore architecture, module boundaries and design decisions."],
       overview: ["开发规划", "Development planning"],
       plan: ["架构设计", "Architecture design"],
       tasks: ["任务看板", "Task board"],
@@ -562,6 +587,30 @@ window.__ModuleLoader__.load({
         "Select a change to inspect acceptance criteria and latest evidence.",
       ],
       confirmTask: ["确认完成", "Confirm done"],
+      opinions: ["评审意见", "Review notes"],
+      opinionEmpty: ["还没有评审意见。写下哪一块要改成什么样，Agent 会按它出下一版方案。", "No review notes yet."],
+      opinionBody: ["哪一块要改成什么样", "What should change, and why"],
+      opinionSubmit: ["记录意见", "Record note"],
+      opinionOpen: ["待回应", "Open"],
+      opinionAddressedBy: ["已在方案版本", "addressed in plan version"],
+      opinionResolve: ["标记已处理", "Mark addressed"],
+      opinionResolution: ["处理说明", "Resolution"],
+      opinionScopeChange: ["整份变更", "Whole change"],
+      prototypes: ["UI 原型", "UI prototypes"],
+      prototypeCount: ["个页面", "pages"],
+      prototypeEmpty: ["还没有登记原型产物。用 save 的 prototypes 字段写入工作区相对路径后，这里可以直接预览。", "No prototype is registered. Write workspace-relative paths through the save prototypes field to preview them here."],
+      prototypeOpen: ["预览", "Preview"],
+      prototypeShot: ["截图", "Screenshot"],
+      prototypeUnreadable: ["读不到这个文件（路径可能已失效或工作区不允许访问）。", "This file cannot be read (the path may be stale or outside the workspace)."],
+      prototypeEmptyFile: ["读到的内容是空的：", "the read returned no bytes:"],
+      prototypeReadMore: ["文件较大，只加载了前一部分。", "The file is large; only the first part was loaded."],
+      prototypeClose: ["关闭预览", "Close preview"],
+      confirmRecorded: ["已确认", "Confirmed"],
+      confirmScope: ["确认范围", "Confirmation scope"],
+      scopeSection: ["规划章节", "Planning section"],
+      scopeDocument: ["方案文档", "Document"],
+      scopeDiagram: ["图源", "Diagram"],
+      scopeTask: ["任务", "Task"],
       noticeReviewTasks: ["{count} 项待你确认完成", "{count} awaiting your confirmation"],
       autoDiagramHint: [
         "按任务与依赖自动推导，任务一动就重画；要固定图示就在架构文档里画。",
@@ -601,7 +650,7 @@ window.__ModuleLoader__.load({
       moreActions: ["更多操作", "More actions"],
     };
     Object.assign(words, {
-  gateBlocked: ["核心判定：尚未就绪，原因如下。","Core verdict: not ready, for the reasons below."],
+      gateBlocked: ["核心判定：尚未就绪，原因如下。","Core verdict: not ready, for the reasons below."],
       errUnknownCode: ["操作被拒绝（代码：", "The operation was refused (code: "],
       runTruth: [
         "命令 succeeded 仅代表执行成功，不代表验收标准 passed。历史版本记录仅供追溯；active 不等于 unknown，不自动恢复或重跑。",
@@ -810,7 +859,38 @@ function readyReasonKey(code) {
   return READY_REASON_KEYS[code] || null;
 }
 
+// The latest verdict recorded for one acceptance criterion, or null when nothing was recorded yet.
+function criterionOutcome(task, criterion) {
+  const records = (task?.evidence || []).filter((item) => item.criterion === criterion);
+  return records.length ? records[records.length - 1].outcome : null;
+}
+
 // Which command of a task has actually been run, and how did the last attempt end.
+
+// Why the delivery button is disabled, in the words of the gate itself. The bar prints one short
+// sentence instead of the raw blocker codes, and never invents a reason the gate did not report.
+const GATE_BLOCKER_KEYS = {
+  APPROVAL_REQUIRED: "gateBlockerApproval",
+  TASK_NOT_TERMINAL: "gateBlockerTaskNotTerminal",
+  ACTIVE_RUN: "gateBlockerActiveRun",
+  UNRESOLVED_UNKNOWN: "gateBlockerUnknown",
+  NO_COMPLETED_TASK: "gateBlockerNoCompleted",
+  MISSING_EVIDENCE: "gateBlockerMissingEvidence",
+};
+
+function gateBlockerText(blockers, translate) {
+  const list = Array.isArray(blockers) ? blockers : [];
+  const seen = [];
+  for (const blocker of list) {
+    const key = GATE_BLOCKER_KEYS[String(blocker?.code ?? blocker)];
+    if (!key || seen.includes(key)) continue;
+    seen.push(key);
+  }
+  if (!seen.length) return "";
+  const head = seen.slice(0, 2).map((key) => translate(key)).join("；");
+  return seen.length > 2 ? head + "；+" + (seen.length - 2) : head;
+}
+
 function latestCommandRun(runs, taskId, index) {
   if (!Array.isArray(runs)) return null;
   let best = null;
@@ -850,7 +930,7 @@ function planIncomplete(draft) {
 /* END PLAN COMPLETENESS SUMMARY */
 /* BEGIN TAB SEMANTICS */
 // One tab stop for the whole strip; arrow / Home / End move between panels (ARIA tabs pattern).
-const TABS = ["plan", "tasks", "resources"];
+const TABS = ["plan", "design", "tasks", "resources"];
 /* END TAB SEMANTICS */
 /* BEGIN ERROR MESSAGE SUMMARY */
 // Core refusals arrive as "CODE: English detail". The workspace is bilingual, so the codes a human can
@@ -992,6 +1072,18 @@ function abandonmentDirty(forms, changeId) {
         parts.push(translate("retriesLabel") + ": " + String(execution.maxRetries));
       }
       return parts.join(" · ");
+    };
+    // The card answers "how far along is this task" without opening the drawer: how many of its
+    // acceptance criteria already carry a passed evidence record.
+    const acceptanceProgressText = (task, translate) => {
+      const total = (task.acceptanceCriteria || []).length;
+      if (!total) return "";
+      const passed = new Set(
+        (task.evidence || [])
+          .filter((item) => item && item.outcome === "passed" && typeof item.criterion === "string")
+          .map((item) => item.criterion),
+      ).size;
+      return translate("criterion") + " " + Math.min(passed, total) + "/" + total;
     };
     /* END TASK EXECUTION FIELDS */
     const normalize = (value) => ({
@@ -1446,8 +1538,13 @@ function abandonmentDirty(forms, changeId) {
 
 `;
     const viewCss = `
-.ep-board{display:grid;grid-template-columns:repeat(7,minmax(240px,1fr));gap:12px;overflow-x:auto;align-items:start;padding:12px 0}
-.ep-column{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:10px;min-height:180px}
+.ep-board{display:grid;grid-auto-flow:column;grid-auto-columns:clamp(260px,32cqw,340px);gap:12px;overflow-x:auto;align-items:start;justify-content:start;padding:12px 0;min-width:0;max-width:100%;scroll-snap-type:x proximity}
+.ep-board>.ep-column{min-width:0;scroll-snap-align:start}
+.ep-board:not(.ep-task-list) .ep-card{overflow-wrap:anywhere}
+.ep-board:not(.ep-task-list) .ep-row{align-items:flex-start}
+.ep-board:not(.ep-task-list) h3{overflow-wrap:anywhere}
+.ep-board:not(.ep-task-list) .ep-column-title{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--dsw-alias-bg-layer-2);margin:0;padding:6px 2px 12px}
+.ep-column{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:10px;min-height:0}
 .ep-column .ep-card{margin:10px 0;padding:10px}
 .ep-column-title{position:sticky;top:0;padding:4px 0}
 .ep-readiness{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -1458,15 +1555,170 @@ function abandonmentDirty(forms, changeId) {
 .ep-matrix small{display:block;color:var(--dsw-alias-label-secondary)}
 .ep-stage{padding:10px 12px;border-left:3px solid var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2)}
 .ep-next{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;border-left:3px solid var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2);font-size:13px}
-@media(max-width:850px){.ep-readiness{grid-template-columns:1fr}.ep-board{grid-template-columns:repeat(7,minmax(205px,1fr))}}
+@media(max-width:850px){.ep-readiness{grid-template-columns:1fr}}
 .ep-compact .ep-layout{display:block}
 .ep-compact .ep-side{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l1);padding-right:0;padding-bottom:12px;margin-bottom:12px}
 .ep-compact .ep-readiness{grid-template-columns:1fr}
 .ep-compact .ep-matrix{min-width:0}
+/* Task board: fixed status lanes in one row, columns stretch to the tallest lane, and an empty
+   lane says so in one quiet line instead of leaving a tall hole in the layout. */
+.ep-board:not(.ep-task-list){align-items:stretch}
+.ep-board:not(.ep-task-list)>.ep-column{min-height:220px;display:flex;flex-direction:column}
+.ep-column-empty{margin:8px 0;color:var(--dsw-alias-label-secondary);font-size:12px}
+.ep-task-card-head{align-items:center;gap:8px}
+.ep-task-id{font-size:11px;color:var(--dsw-alias-label-secondary);font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
+.ep-task-card-title{margin:4px 0 0;font-size:13px;line-height:1.35;overflow-wrap:anywhere}
+.ep-task-card-files{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0;font-size:11px}
+.ep-task-card-files code{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}
+.ep-task-card-meta{margin:6px 0 0;font-size:11px}
+.ep-task-card-progress{margin:6px 0 0;font-size:11px;color:var(--dsw-alias-label-secondary)}
+/* Quality gate: one block of rows per task, the result column right-aligned, and the human
+   confirmation entry rendered exactly once per task. */
+.ep-matrix-task{vertical-align:top;min-width:150px}
+.ep-matrix-task strong{display:block;font-size:12px;line-height:1.35}
+.ep-matrix-group>th,.ep-matrix-group>td{border-top:2px solid var(--dsw-alias-border-l1)}
+.ep-matrix td.ep-matrix-outcome{text-align:right;white-space:nowrap}
+.ep-matrix-review{vertical-align:top;min-width:150px}
+.ep-proto-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.ep-proto{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:8px 10px}
+.ep-proto-head{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
+.ep-proto-id{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.ep-proto-meta{margin:4px 0 6px;font-size:12px}
+.ep-proto-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ep-proto-path{margin:0;font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;word-break:break-all}
+.ep-task-open{cursor:pointer}
+.ep-task-open:hover{border-color:var(--dsw-alias-border-l2)}
+.ep-task-card-block{font-size:12px;margin:4px 0 0}
+.ep-task-drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,94vw);z-index:60;display:flex;flex-direction:column;gap:10px;overflow:auto;padding:16px 18px;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l1);box-shadow:-18px 0 40px rgba(0,0,0,.35)}
+.ep-task-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ep-task-drawer h3{margin:0;font-size:16px}
+.ep-task-drawer-section{border-top:1px solid var(--dsw-alias-border-l1);padding-top:8px}
+.ep-task-drawer-section h4{margin:0 0 6px;font-size:12px;color:var(--dsw-alias-label-secondary);font-weight:600}
+.ep-task-drawer-file{display:block;font-size:11px;overflow-wrap:anywhere;margin-bottom:3px}
+.ep-criterion-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start;padding:5px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.ep-criterion-text{font-size:12px}
+.ep-criterion-outcome{font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
+.ep-criterion-outcome.ep-success{color:var(--dsw-alias-state-success-primary)}
+.ep-proto-drawer{position:fixed;top:0;right:0;bottom:0;width:min(760px,92vw);display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l1);z-index:60;box-shadow:-12px 0 32px rgba(0,0,0,.38)}
+.ep-proto-drawer-head{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.ep-proto-frame{flex:1;border:0;background:#fff}
+.ep-proto-image{flex:1;min-height:0;width:100%;object-fit:contain;background:#0b0b0d}
+.ep-opinion-list{list-style:none;margin:0 0 10px;padding:0;display:grid;gap:8px}
+.ep-opinion{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:8px 10px}
+.ep-opinion-scope{margin:0 0 4px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.ep-opinion-body{margin:0 0 4px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+.ep-opinion-meta{margin:0;font-size:11px}
+.ep-opinion-form{display:grid;gap:8px;margin-top:6px}
+.ep-opinion-form textarea{width:100%;resize:vertical;font:inherit;padding:8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:inherit}
+.ep-deliver-locked{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.ep-matrix-evidence{min-width:170px;max-width:240px}
+.ep-matrix-evidence code{display:block;overflow-wrap:anywhere;font-size:11px}
+.ep-matrix-evidence small{display:block;margin-top:3px;color:var(--dsw-alias-label-secondary);font-size:10px;overflow-wrap:anywhere}
+.ep-matrix-scope{margin:0 0 6px;font-size:11px}
+/* Delivery: one confirm button with its blocking reason stated beside it. */
+.ep-deliver-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px}
+.ep-deliver-reason{margin:0;margin-right:auto;font-size:12px;color:var(--dsw-alias-state-warn-primary)}
+.ep-deliver-reason.ep-success{color:var(--dsw-alias-state-success-primary)}
+/* Toolbar: the status filters keep one line and scroll, so the view switch never wraps below them. */
+.ep-task-toolbar{flex-wrap:nowrap}
+.ep-task-filters{flex:1 1 auto;flex-wrap:nowrap;overflow-x:auto;min-width:0;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l1) transparent}
+.ep-task-filters::-webkit-scrollbar{height:4px}
+.ep-task-filters::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l1);border-radius:2px}
+.ep-task-actions{flex:none}
 .ep-compact .ep-tabs button{flex:1 1 auto}
 `;
+    const workspaceCss = `
+.ep{overflow:hidden;container-type:inline-size}
+.ep-layout{grid-template-columns:216px minmax(0,1fr);overflow:hidden}
+.ep-side{padding:24px 14px;display:flex;flex-direction:column;gap:12px}
+.ep-side .ep-brand{font-size:16px;margin:0 0 8px}
+.ep-navigation{flex:1;min-height:0}
+.ep-navigation>summary{font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:12px}
+.ep-navigation>.ep-row{justify-content:flex-end}
+.ep-list{display:grid;gap:4px}
+.ep-list button{padding:12px;border-color:transparent;border-radius:10px}
+.ep-list button.ep-selected{border-color:var(--dsw-alias-border-l2)}
+.ep-main{padding:28px 32px 40px}
+.ep-workspace{max-width:1120px}
+.ep-heading{gap:12px;padding:0 0 20px}
+.ep .ep-change-title{font-size:26px;letter-spacing:-.4px}
+.ep-goal{max-width:80ch;color:var(--dsw-alias-label-secondary);margin:0}
+.ep-next{border:0;border-radius:10px;padding:12px 16px;justify-content:space-between}
+.ep-tabs{position:sticky;top:-28px;z-index:2;background:var(--dsw-alias-bg-base);padding:12px 0;gap:4px}
+.ep-tabs button{border-color:transparent;padding:10px 18px;border-radius:8px}
+.ep-tabs button.ep-selected{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l1)}
+.ep-card{padding:20px;border-radius:12px;margin:16px 0}
+.ep-checklist summary{padding:16px 4px;font-size:14px}
+.ep-checklist details:last-child{border-bottom:0}
+.ep-checklist details[open]{padding-bottom:16px}
+.ep-task-summary{padding:16px 20px}
+.ep-quality-main{display:grid;gap:12px}
+.ep-quality-main>.ep-card{margin:0}
+.ep-quality-main .ep-section{margin-top:8px}
+.ep-quality-main .ep-matrix{font-size:12px;min-width:720px}
+.ep-quality-main .ep-matrix th,.ep-quality-main .ep-matrix td{padding:8px}
+.ep-quality-main .ep-matrix th:first-child{min-width:120px}
+.ep-quality-main .ep-matrix th:nth-child(2){min-width:180px}
+.ep-quality-main .ep-matrix th:nth-child(3),.ep-quality-main .ep-matrix td:nth-child(3){white-space:nowrap}
+.ep-quality-main .ep-delivery-note{margin:8px 0}
+.ep-quality-main .ep-delivery-note textarea{min-height:64px}
+.ep-quality-tools>.ep-card,.ep-quality-archive>.ep-card,.ep-quality-runs>.ep-card{padding:12px 0;margin:8px 0 0;border:0;background:transparent}
+.ep-quality-tools summary,.ep-quality-archive summary,.ep-quality-runs>summary{font-size:13px}
+.ep-quality-main .ep-grid{gap:8px}
+
+.ep-task-detail-section{padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.ep-task-detail-section h4{margin:0 0 8px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.ep-task-detail-section summary{font-weight:600}
+.ep-task-detail-section li{padding:5px 0}
+.ep-criterion-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.ep-criterion-heading>span:first-child{min-width:0;overflow-wrap:anywhere}
+.ep-criterion-heading>.ep-badge,.ep-criterion-heading>.ep-muted{flex-shrink:0;white-space:nowrap}
+.ep .ep-criterion-note{margin:4px 0 0;font-size:12px;color:var(--dsw-alias-label-secondary);line-height:1.45}
+.ep-criterion>code{display:block;margin-top:4px}
+
+
+.ep-task-toolbar{display:grid;gap:12px;margin:16px 0}
+.ep-task-filters{display:flex;gap:4px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.ep .ep-filter{display:flex;gap:6px;align-items:center;border-color:transparent;background:transparent;border-radius:18px;padding:6px 10px}
+.ep .ep-filter-active{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);font-weight:600}
+.ep-filter-count{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
+.ep-task-actions{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.ep-view-switch{display:flex;gap:2px;padding:3px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}
+.ep-view-switch button{border-color:transparent;padding:4px 12px}
+
+.ep-task-list .ep-column{background:transparent;border:0;padding:0;margin:16px 0}
+.ep-task-list .ep-column-title{font-size:12px;color:var(--dsw-alias-label-secondary)}
+.ep-task-list .ep-column .ep-card{padding:16px;margin:8px 0}
+.ep-action-menu{font-size:12px;color:var(--dsw-alias-label-secondary)}
+.ep-action-menu button{margin:8px 4px 0 0}
+.ep-stats{border-block:1px solid var(--dsw-alias-border-l1);padding:16px 0}
+.ep-layout.ep-compact{display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.ep-layout.ep-compact>.ep-side{flex:none;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:12px 16px;margin:0}
+.ep-layout.ep-compact>.ep-side>.ep-brand{display:none}
+.ep-layout.ep-compact>.ep-side>.ep-change-picker{margin:0;display:block;min-width:0}
+.ep-change-picker>span{display:none}
+.ep-layout.ep-compact>.ep-side>.ep-tools{grid-column:1/-1;margin:0}
+.ep-layout.ep-compact>.ep-main{flex:1;min-height:0;overflow:auto}
+.ep-layout.ep-compact>.ep-main .ep-tabs{position:sticky;top:-16px}
+.ep-layout.ep-compact>.ep-main .ep-heading{padding-bottom:12px}
+.ep-compact .ep-side{padding:12px}
+.ep-compact .ep-main{overflow:visible;padding:16px}
+.ep-compact .ep-change-title{font-size:20px}
+.ep-compact .ep-tabs{position:static}
+.ep-compact .ep-card{padding:14px}
+@container(max-width:780px){
+.ep-layout{display:flex;flex-direction:column;overflow:auto}
+.ep-side{padding:12px 16px;border-right:0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.ep-side .ep-brand{display:none}
+.ep-navigation{flex:none;margin:0}
+.ep-main{overflow:visible;padding:20px 16px}
+.ep-tabs{position:static}
+.ep-tabs button{flex:1;padding:8px}
+.ep .ep-change-title{font-size:22px}
+}
+`;
     return {
-      inject: ["slots", "locale", "remote", "remote.commands"],
+      inject: ["slots", "locale", "remote", "remote.commands", "remote.workspaceFiles", "connection"],
       apply(ctx) {
         for (const [language, index] of [
           ["zh", 0],
@@ -1676,10 +1928,13 @@ function abandonmentDirty(forms, changeId) {
           const [warnings, setWarnings] = React.useState([]);
           const [editingPlan, setEditingPlan] = React.useState(false);
           const [taskFilter, setTaskFilter] = React.useState("");
+          // Task detail lives in a drawer instead of an inline <details>: the prototype's card answers
+          // "what is this, what does it deliver, can it start, how far is it", and the long-form reading
+          // happens without re-flowing the board underneath.
+          const [taskDrawer, setTaskDrawer] = React.useState(null);
           const taskDetails = React.useRef(new Map());
           const [diagram, setDiagram] = React.useState("architecture");
           // The architecture block is the heaviest subtree on the page; it mounts only when unfolded.
-          const [archOpen, setArchOpen] = React.useState(false);
           const [reviewOpen, setReviewOpen] = React.useState(false);
           // A list is the default: the seven-column board only pays off on a wide screen and pushes
           // every other task action out of view. The toggle beside the filter still offers it.
@@ -1716,6 +1971,12 @@ function abandonmentDirty(forms, changeId) {
             setDispatchResolution(resetDispatchConfirmations);
           }, [dispatchList]);
           const [delivery, setDelivery] = React.useState({ note: "", confirmed: false });
+          // 评审意见草稿：scope 决定这条意见挂在方案的哪一块，body 是给人看的原话。
+          const [opinion, setOpinion] = React.useState({ kind: "section", key: "requirements", body: "" });
+          const [opinionBusy, setOpinionBusy] = React.useState("");
+          const [protoPreview, setProtoPreview] = React.useState(null);
+          const [protoBusy, setProtoBusy] = React.useState("");
+          const [protoError, setProtoError] = React.useState("");
           // Authoritative delivery gate from the core; null means "not queried for this version yet".
           const [gate, setGate] = React.useState(null);
           const [gateError, setGateError] = React.useState("");
@@ -1903,6 +2164,12 @@ function abandonmentDirty(forms, changeId) {
             if (typeof noteChangeLoaded === "function") noteChangeLoaded(next);
           };
           async function sendCommand(input) {
+            if (["list", "get", "context", "gateStatus", "readyTasks", "verificationRuns", "dispatchRuns", "mermaidAsset"].includes(input.action)) {
+              const result = await ctx.connection.rpc.call("/api", "engineeringReader/query",
+                { args: { agentId: props.sessionId, input } }, new AbortController().signal);
+              if (!result?.ok) throw new Error(result?.error?.message || t("operationFailed"));
+              return result.value;
+            }
             const envelope = await ctx.remote.commands.execute(
               props.sessionId,
               "/engineering " + JSON.stringify(input),
@@ -2190,7 +2457,9 @@ function abandonmentDirty(forms, changeId) {
               blocked && h("p", { className: "ep-warn" }, t(blocked)),
               h("div", { className: "ep-row" },
                 button("dispatchFill", () => nativeDispatchRequest(taskId, "fill"), busy || !!blocked),
-                button("dispatchCopy", () => nativeDispatchRequest(taskId, "copy"), busy || !!blocked)));
+                h("details", null,
+                  h("summary", null, t("moreActions")),
+                  button("dispatchCopy", () => nativeDispatchRequest(taskId, "copy"), busy || !!blocked))));
           }
           function requestControls(kind, taskId = "") {
             const deliveryBlocked = !deliveryRequestAllowed(kind, change);
@@ -2217,12 +2486,14 @@ function abandonmentDirty(forms, changeId) {
                   deliveryBlocked || unsettled ||
                     (kind !== "plan" && !change.tasks.some((task) => task.id === taskId)),
                 ),
+                h("details", null,
+                  h("summary", null, t("moreActions")),
                 button(
                   "copy",
                   () => { if (deliveryRequestAllowed(kind, change)) copy(requestText(kind, taskId)); },
                   deliveryBlocked || unsettled ||
                     (kind !== "plan" && !change.tasks.some((task) => task.id === taskId)),
-                ),
+                )),
               ),
               h("p", { className: "ep-muted" }, t(deliveryBlocked ? "deliveryFrozen" : unsettled ? "saveFirst" : "fillHint")),
             );
@@ -2564,6 +2835,52 @@ function abandonmentDirty(forms, changeId) {
                 }),
             );
           }
+          // The prototype's task drawer: what the task is, what it delivers, why it cannot start,
+          // how far its acceptance is. Read-only except for the one action the status allows.
+          function taskDrawerCard() {
+            if (!taskDrawer) return null;
+            const task = (draft?.tasks || []).find((item) => item.id === taskDrawer);
+            if (!task) return null;
+            const reasons = typeof readyMatches === "function" && readyMatches(ready, change) ? readyReasons(ready, task.id) : [];
+            const criteria = task.acceptanceCriteria || [];
+            const passed = criteria.filter((criterion) => criterionOutcome(task, criterion) === "passed").length;
+            return h("div", { className: "ep-task-drawer", role: "dialog", "aria-label": task.title },
+              h("div", { className: "ep-task-drawer-head" },
+                h("span", { className: "ep-row" }, h("code", { className: "ep-task-id" }, task.id), badge(task.status)),
+                button("taskClose", () => setTaskDrawer(null)),
+              ),
+              h("h3", null, task.title),
+              h("p", { className: "ep-muted" }, taskMetaText(task, t)),
+              task.description && h("section", { className: "ep-task-drawer-section" },
+                h("h4", null, t("taskGoal")), documentPreview(task.description)),
+              (task.expectedFiles || []).length > 0 && h("section", { className: "ep-task-drawer-section" },
+                h("h4", null, t("taskFiles")),
+                ...task.expectedFiles.map((file, index) =>
+                  h("code", { key: index, className: "ep-task-drawer-file" }, file))),
+              reasons.length > 0 && h("section", { className: "ep-task-drawer-section" },
+                h("h4", null, t("readyBlockedReasons")),
+                ...reasons.map((reason, index) =>
+                  h("p", { key: index, className: "ep-warn" },
+                    t(readyReasonKey(reason.code) || "readyUnresolvedUnknown"),
+                    reason.detail ? " · " + reason.detail : ""))),
+              criteria.length > 0 && h("section", { className: "ep-task-drawer-section" },
+                h("h4", null, t("criterion"), " ", passed + "/" + criteria.length),
+                ...criteria.map((criterion, index) => {
+                  const outcome = criterionOutcome(task, criterion);
+                  return h("div", { key: index, className: "ep-criterion-row" },
+                    h("span", { className: "ep-criterion-text" }, criterion),
+                    h("span", { className: "ep-criterion-outcome" + (outcome === "passed" ? " ep-success" : "") },
+                      outcome ? t(outcome) : t("notStarted")),
+                  );
+                })),
+              task.status === "awaiting-review" &&
+                button("confirmTask", () => {
+                  setTaskDrawer(null);
+                  run(() => mutate("transition", { taskId: task.id, status: "completed" }));
+                }, false, true),
+            );
+          }
+
           function tasksView() {
             const savedTasks = new Map(change.tasks.map((task) => [task.id, task]));
             const blockedTasks = change.tasks.filter((task) => task.status === "blocked");
@@ -2579,6 +2896,7 @@ function abandonmentDirty(forms, changeId) {
             return h(
               React.Fragment,
               null,
+              taskDrawerCard(),
               h("section", { className: "ep-card ep-task-summary" },
                 h("span", null, t("completed"), " ", change.tasks.filter((task) => task.status === "completed").length,
                   " / ", change.tasks.length),
@@ -2588,18 +2906,28 @@ function abandonmentDirty(forms, changeId) {
                 next && h("button", { type: "button", onClick: () => revealTask(next.id) },
                   t("nextTask"), " · ", next.title),
               ),
-              h("details", { className: "ep-card" }, h("summary", null, t("currentRuns")), dispatchRunsView()),
-              h(
-                "div",
-                { className: "ep-row" },
-                field("status", taskFilter, setTaskFilter, {
-                  choices: [["", t("allStatuses")], ...statuses.map((status) => [status, textStatus(status)])],
-                }),
-                ...[["list", "listLayout"], ["board", "boardLayout"]].map(([value, label]) =>
-                  button(label, () => setTaskLayout(value), false, taskLayout === value, {
-                    key: value, "aria-pressed": taskLayout === value,
+
+              h("div", { className: "ep-task-toolbar" },
+                h("div", { className: "ep-task-filters", role: "group", "aria-label": t("status") },
+                  ...["", ...statuses].map((status) => {
+                    const count = status ? draft.tasks.filter((task) => task.status === status).length : draft.tasks.length;
+                    return h("button", {
+                      key: status || "all", type: "button",
+                      className: taskFilter === status ? "ep-filter ep-filter-active" : "ep-filter",
+                      "aria-pressed": taskFilter === status,
+                      onClick: () => setTaskFilter(status),
+                    }, status ? textStatus(status) : t("allStatuses"),
+                      h("span", { className: "ep-filter-count" }, count));
                   }),
                 ),
+                h("div", { className: "ep-task-actions" },
+                  h("div", { className: "ep-view-switch", role: "group", "aria-label": t("tasks") },
+                    ...[["list", "listLayout"], ["board", "boardLayout"]].map(([value, label]) =>
+                      button(label, () => setTaskLayout(value), false, taskLayout === value, {
+                        key: value, "aria-pressed": taskLayout === value,
+                      }),
+                    ),
+                  ),
                 button(
                   "addTask",
                   () =>
@@ -2615,6 +2943,7 @@ function abandonmentDirty(forms, changeId) {
                   !!taskEdit,
                   true,
                 ),
+                ),
               ),
               taskForm(),
               h(
@@ -2624,59 +2953,95 @@ function abandonmentDirty(forms, changeId) {
                 h("p", { className: "ep-muted" }, t("dependencyHint")),
                 dependencyDiagram(),
               ),
-              !draft.tasks.length && h("p", { className: "ep-empty" }, t("noTasks")),
+              !draft.tasks.some((task) => !taskFilter || task.status === taskFilter) &&
+                h("p", { className: "ep-empty" }, t(taskFilter ? "noFilteredTasks" : "noTasks")),
               h(
                 "div",
-                { className: taskLayout === "board" && !taskFilter ? "ep-board" : "ep-board ep-task-list", "aria-label": t("tasks") },
-                ...statuses.filter((status) => !taskFilter || status === taskFilter).map((status) =>
+                { className: taskLayout === "board" ? "ep-board" : "ep-board ep-task-list", "aria-label": t("tasks") },
+                ...statuses.filter((status) => status !== "cancelled" && (!taskFilter || status === taskFilter)).map((status) =>
                   h(
                     "section",
                     { key: status, className: "ep-column" },
                     h(
                       "h3",
                       { className: "ep-column-title" },
-                      textStatus(status),
-                      " · ",
-                      draft.tasks.filter((task) => task.status === status).length,
+                      h("span", null, textStatus(status)),
+                      h("span", { className: "ep-filter-count" }, draft.tasks.filter((task) => task.status === status).length),
                     ),
+                    !draft.tasks.some((task) => task.status === status) &&
+                      h("p", { className: "ep-column-empty" }, t("noTasks")),
                     ...draft.tasks
                       .filter((task) => task.status === status)
                       .map((task) =>
                         h(
                           "article",
-                          { key: task.id, className: "ep-card" },
+                          {
+                            key: task.id,
+                            className: "ep-card ep-task-open",
+                            onClick: (event) => {
+                              if (event.target.closest("button, a, summary, details, input, select, textarea")) return;
+                              setTaskDrawer(task.id);
+                            },
+                          },
                           h(
                             "div",
-                            { className: "ep-row ep-between" },
-                            h("h3", null, task.title),
+                            { className: "ep-row ep-between ep-task-card-head" },
+                            h("code", { className: "ep-task-id" }, task.id),
                             badge(task.status),
                           ),
-                          h("p", { className: "ep-muted" }, taskMetaText(task, t)),
+                          h("h4", { className: "ep-task-card-title" }, task.title),
+                          (task.expectedFiles || []).length > 0 &&
+                            h(
+                              "p",
+                              { className: "ep-task-card-files" },
+                              ...(task.expectedFiles || []).slice(0, 2).map((file, index) =>
+                                h("code", { key: index }, file)),
+                              (task.expectedFiles || []).length > 2 &&
+                                h("span", { className: "ep-muted" }, " +" + ((task.expectedFiles || []).length - 2)),
+                            ),
+                          h("p", { className: "ep-muted ep-task-card-meta" }, taskMetaText(task, t)),
+                          acceptanceProgressText(task, t) &&
+                            h("p", { className: "ep-task-card-progress" }, acceptanceProgressText(task, t)),
+                          task.status === "pending" && readyFresh && readyReasons(ready, task.id).length > 0 &&
+                            h("p", { className: "ep-warn ep-task-card-block" }, t("readyBlockedReasons"), " · ",
+                              readyReasons(ready, task.id)
+                                .map((reason) => t(readyReasonKey(reason.code) || "readyUnresolvedUnknown"))
+                                .join("；")),
                           task.reason && h("p", { className: "ep-warn" }, task.reason),
+                            task.status === "awaiting-review" &&
+                              button(
+                                "confirmTask",
+                                () => run(() => mutate("transition", { taskId: task.id, status: "completed" })),
+                                false,
+                                true,
+                              ),
+
                           h("details", { ref: (node) => {
                             if (node) taskDetails.current.set(task.id, node);
                             else taskDetails.current.delete(task.id);
                           } },
                           h("summary", null, t("taskDetails")),
-                          h("p", { className: "ep-muted" }, task.id),
-                          h("p", null, task.description),
+                          task.description && h("section", { className: "ep-task-detail-section" },
+                            h("h4", null, t("taskGoal")),
+                            documentPreview(task.description)),
+                          (task.dependencies || []).length > 0 &&
                           h(
                             "p",
                             null,
-                            t("dependsOn"),
+                            t("taskDependencies"),
                             ": ",
                             (task.dependencies || []).length
                               ? task.dependencies
                                   .map((id) => {
                                     const dep = draft.tasks.find((x) => x.id === id);
                                     return (
-                                      (dep ? dep.title : t("unknownDependency")) + " (" + id + ")"
+                                      (dep ? dep.title + " · " + textStatus(dep.status) : t("unknownDependency"))
                                     );
                                   })
                                   .join(", ")
                               : t("noDependencies"),
                           ),
-                          readyFresh &&
+                          task.status === "pending" && readyFresh &&
                             readyReasons(ready, task.id).length > 0 &&
                             h(
                               "div",
@@ -2700,8 +3065,11 @@ function abandonmentDirty(forms, changeId) {
                               (task[key] || []).length > 0 &&
                               h(
                                 "details",
-                                { key, open: key === "acceptanceCriteria" },
-                                h("summary", null, t(key)),
+                                { key, className: "ep-task-detail-section", open: key !== "verificationCommands" },
+                                h("summary", null, t({
+                                  expectedFiles: "taskFiles", acceptanceCriteria: "taskAcceptance",
+                                  verificationCommands: "taskChecks",
+                                }[key])),
                                 h(
                                   "ul",
                                   null,
@@ -2735,24 +3103,28 @@ function abandonmentDirty(forms, changeId) {
                                               );
                                             })(),
                                           )
-                                        : value,
+                                        : key === "expectedFiles" ? h("code", null, value)
+                                        : (() => {
+                                            const latest = [...(task.evidence || [])].reverse().find((item) =>
+                                              item.criterion === value && item.planVersion === change.planVersion);
+                                            return h("div", { className: "ep-criterion" },
+                                              h("div", { className: "ep-criterion-heading" },
+                                                h("span", null, value),
+                                                latest ? badge(latest.outcome)
+                                                  : h("span", { className: "ep-muted" }, t("missingEvidence"))),
+                                              latest?.note && h("p", { className: "ep-criterion-note" }, latest.note),
+                                              latest?.artifact && h("code", null, latest.artifact));
+                                          })(),
                                     ),
                                   ),
                                 ),
                               ),
                           ),
-                          h(
+                          editable && h(
                             "div",
                             { className: "ep-row" },
                             // A gated task stops at awaiting-review on purpose: the agent did the work and
                             // the evidence is in, so the only thing left is a human saying "done".
-                            task.status === "awaiting-review" &&
-                              button(
-                                "confirmTask",
-                                () => run(() => mutate("transition", { taskId: task.id, status: "completed" })),
-                                false,
-                                true,
-                              ),
                             button(
                               "edit",
                               () => taskEditor(task, draft.tasks.indexOf(task)),
@@ -2777,14 +3149,17 @@ function abandonmentDirty(forms, changeId) {
                               !!taskEdit,
                             ),
                           ),
-                          requestControls("task", task.id),
-                          nativeDispatchControls(task.id),
+                          !["completed", "cancelled", "awaiting-review"].includes(task.status) && requestControls("task", task.id),
+                          button("taskOpenDetail", () => setTaskDrawer(task.id), false, false, { "data-task": task.id }),
+                          task.status === "pending" && nativeDispatchControls(task.id),
                           ),
                         ),
                       ),
                   ),
                 ),
               ),
+              h("details", { className: "ep-card ep-manual" },
+                h("summary", null, t("manualTools")),
               h(
                 "form",
                 {
@@ -2856,6 +3231,8 @@ function abandonmentDirty(forms, changeId) {
                   ),
                 ),
               ),
+              ),
+              h("details", { className: "ep-card" }, h("summary", null, t("currentRuns")), dispatchRunsView()),
             );
           }
           function documentPreview(value) {
@@ -3073,6 +3450,71 @@ function abandonmentDirty(forms, changeId) {
               ),
             );
           }
+          const OPINION_KINDS = [
+            ["section", "scopeSection"], ["document", "scopeDocument"],
+            ["diagram", "scopeDiagram"], ["task", "scopeTask"], ["change", "opinionScopeChange"],
+          ];
+          const OPINION_DOCUMENTS = ["proposal", "requirements", "architecture", "implementation", "impact-analysis", "acceptance", "decisions", "findings"];
+          function opinionCard() {
+            const list = Array.isArray(draft.opinions) ? draft.opinions : [];
+            const open = list.filter((item) => item.status === "open").length;
+            const keysFor = (kind) => kind === "section" ? sectionKeys
+              : kind === "diagram" ? ["architecture", "sequence", "data-flow"]
+              : kind === "document" ? OPINION_DOCUMENTS
+              : kind === "task" ? draft.tasks.map((task) => task.id)
+              : [""];
+            const keyOf = (kind) => { const options = keysFor(kind); return options.includes(opinion.key) ? opinion.key : options[0]; };
+            const scopeHtml = (scope) => scope && scope.kind === "change"
+              ? t("opinionScopeChange")
+              : scope ? t(OPINION_KINDS.find(([kind]) => kind === scope.kind)?.[1] ?? "scopeSection") + " · " + (scope.kind === "task" ? scope.key : t(scope.key))
+              : t("opinionScopeChange");
+            return h("section", { className: "ep-card" },
+              h("div", { className: "ep-row ep-between" },
+                h("h3", null, t("opinions")),
+                h("span", { className: "ep-badge " + (open ? "ep-warn" : "ep-muted") }, open, " ", t("opinionOpen")),
+              ),
+              list.length === 0 && h("p", { className: "ep-muted" }, t("opinionEmpty")),
+              list.length > 0 && h("ul", { className: "ep-opinion-list" },
+                ...list.map((item) => h("li", { key: item.id, className: "ep-opinion" },
+                  h("p", { className: "ep-opinion-scope" }, scopeHtml(item.scope), " · ", t("planVersion"), " ", item.planVersion),
+                  h("p", { className: "ep-opinion-body" }, item.body),
+                  h("p", { className: "ep-opinion-meta ep-muted" },
+                    item.actor ? item.actor.kind + ": " + item.actor.id : "", " · ",
+                    String(item.createdAt || "").slice(0, 16).replace("T", " ")),
+                  item.status === "open"
+                    ? h(React.Fragment, null,
+                        item.addressedByPlanVersion && h("p", { className: "ep-opinion-meta" },
+                          t("opinionAddressedBy"), " ", item.addressedByPlanVersion),
+                        button("opinionResolve", () => run(() => mutate("resolveOpinion", { opinionId: item.id, resolution: "" })), busy || unsettled))
+                    : h("p", { className: "ep-opinion-meta ep-success" },
+                        t("opinionAddressedBy"), " ", item.addressedByPlanVersion || item.planVersion,
+                        item.resolution ? " · " + item.resolution : ""),
+                )),
+              ),
+              h("fieldset", { className: "ep-opinion-form", disabled: busy || unsettled },
+                h("div", { className: "ep-row" },
+                  h("select", {
+                    value: opinion.kind,
+                    onChange: (event) => { const kind = event.target.value; setOpinion({ kind, key: keysFor(kind)[0], body: opinion.body }); },
+                  }, ...OPINION_KINDS.map(([kind, label]) => h("option", { key: kind, value: kind }, t(label)))),
+                  opinion.kind !== "change" && h("select", {
+                    value: keyOf(opinion.kind),
+                    onChange: (event) => setOpinion({ ...opinion, key: event.target.value }),
+                  }, ...keysFor(opinion.kind).map((key) => h("option", { key: key || "none", value: key },
+                    opinion.kind === "task" || opinion.kind === "diagram" ? key : t(key)))),
+                ),
+                h("textarea", {
+                  rows: 3, placeholder: t("opinionBody"), value: opinion.body,
+                  onChange: (event) => setOpinion({ ...opinion, body: event.target.value }),
+                }),
+                button("opinionSubmit", () => run(() => mutate("opinion", {
+                  scope: { kind: opinion.kind, key: opinion.kind === "change" ? "" : keyOf(opinion.kind) },
+                  body: opinion.body,
+                }).then(() => setOpinion({ kind: "section", key: "requirements", body: "" }))),
+                  busy || unsettled || !opinion.body.trim()),
+              ),
+            );
+          }
           function planningView() {
             const planning = planningDefaults(draft.planning);
             const documentKey = {
@@ -3110,6 +3552,88 @@ function abandonmentDirty(forms, changeId) {
                   " · ", planning.reviewRequirements || t("documentEmpty")),
               ),
               editingPlan && planningEditor(),
+              prototypeCard(),
+              opinionCard(),
+            );
+          }
+          function bytesOf(data) {
+          if (data instanceof Uint8Array) return data;
+          if (Array.isArray(data)) return new Uint8Array(data);
+          if (typeof data === "string") {
+            try {
+              const binary = atob(data);
+              const out = new Uint8Array(binary.length);
+              for (let index = 0; index < binary.length; index++) out[index] = binary.charCodeAt(index);
+              return out;
+            } catch {
+              return new TextEncoder().encode(data);
+            }
+          }
+          if (data && typeof data === "object" && Array.isArray(data.data)) return new Uint8Array(data.data);
+          return new Uint8Array(0);
+        }
+        function prototypeCard() {
+            const list = Array.isArray(draft.prototypes) ? draft.prototypes : [];
+            const openPreview = async (entry, kind) => {
+              const target = kind === "html" ? entry.htmlPath : entry.screenshotPath;
+              if (!target) return;
+              setProtoBusy(entry.pageId + ":" + kind);
+              setProtoError("");
+              try {
+                const file = await ctx.remote.workspaceFiles.readBytes(props.sessionId, target, {});
+                const payload = file && file.ok === true && file.value ? file.value : file;
+                const raw = bytesOf(payload?.data);
+                if (!raw.length) throw new Error(t("prototypeEmptyFile") + " " + JSON.stringify({ keys: Object.keys(payload ?? {}) }).slice(0, 120));
+                if (kind === "html") {
+                  setProtoPreview({ title: entry.title, pageId: entry.pageId, path: target, html: new TextDecoder().decode(raw) });
+                } else {
+                  const mime = /\.jpe?g$/i.test(target) ? "image/jpeg" : /\.webp$/i.test(target) ? "image/webp" : "image/png";
+                  setProtoPreview({ title: entry.title, pageId: entry.pageId, path: target, image: URL.createObjectURL(new Blob([raw], { type: mime })) });
+                }
+              } catch (error) {
+                setProtoError(t("prototypeUnreadable") + " " + String(error && error.message ? error.message : error));
+              } finally {
+                setProtoBusy("");
+              }
+            };
+            const closePreview = () => {
+              if (protoPreview && protoPreview.image) URL.revokeObjectURL(protoPreview.image);
+              setProtoPreview(null);
+            };
+            return h("section", { className: "ep-card" },
+              h("div", { className: "ep-row ep-between" },
+                h("h3", null, t("prototypes")),
+                h("span", { className: "ep-badge ep-muted" }, list.length, " ", t("prototypeCount")),
+              ),
+              list.length === 0 && h("p", { className: "ep-muted" }, t("prototypeEmpty")),
+              list.length > 0 && h("ul", { className: "ep-proto-list" },
+                ...list.map((entry) => h("li", { key: entry.pageId, className: "ep-proto" },
+                  h("div", { className: "ep-proto-head" },
+                    h("strong", null, entry.title),
+                    h("code", { className: "ep-proto-id" }, entry.pageId),
+                  ),
+                  h("p", { className: "ep-proto-meta ep-muted" },
+                    t("planVersion"), " ", entry.planVersion, entry.note ? " · " + entry.note : ""),
+                  h("div", { className: "ep-proto-actions" },
+                    entry.htmlPath ? button(protoBusy === entry.pageId + ":html" ? "toolRunning" : "prototypeOpen",
+                      () => { openPreview(entry, "html"); }, !!protoBusy) : null,
+                    entry.screenshotPath ? button(protoBusy === entry.pageId + ":png" ? "toolRunning" : "prototypeShot",
+                      () => { openPreview(entry, "png"); }, !!protoBusy) : null,
+                    h("code", { className: "ep-proto-path" }, entry.htmlPath || entry.screenshotPath),
+                  ),
+                )),
+              ),
+              protoError && h("p", { className: "ep-error" }, protoError),
+              protoPreview && h("div", { className: "ep-proto-drawer", role: "dialog", "aria-modal": "true", "aria-label": protoPreview.title },
+                h("div", { className: "ep-proto-drawer-head" },
+                  h("span", null, protoPreview.title, " · ", protoPreview.pageId),
+                  h("code", { className: "ep-proto-path" }, protoPreview.path),
+                  button("prototypeClose", closePreview),
+                ),
+                protoPreview.html !== undefined
+                  ? h("iframe", { className: "ep-proto-frame", title: protoPreview.title, sandbox: "allow-scripts", srcDoc: protoPreview.html })
+                  : h("img", { className: "ep-proto-image", alt: protoPreview.title, src: protoPreview.image }),
+              ),
             );
           }
           function planningEditor() {
@@ -3299,6 +3823,7 @@ function abandonmentDirty(forms, changeId) {
                             "artifact",
                             "recorder",
                             "recordedAt",
+                            "humanReview",
                           ].map((key) => h("th", { key, scope: "col" }, t(key))),
                         ),
                       ),
@@ -3328,6 +3853,154 @@ function abandonmentDirty(forms, changeId) {
                               latest?.actor ? latest.actor.kind + ": " + latest.actor.id : "—",
                             ),
                             h("td", null, latest?.recordedAt || "—"),
+                            h("td", null, task.requiredApproval
+                              ? task.status === "awaiting-review"
+                                ? rows.findIndex((row) => row.task.id === task.id) === index &&
+                                  button("confirmTask", () => run(() => mutate("transition", { taskId: task.id, status: "completed" })), busy || unsettled, true)
+                                : badge(task.status)
+                              : "—"),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+            );
+          }
+          // The gate is read task-first: every task owns one block of rows, so its status and its
+          // single human-confirmation entry live in the first row and never repeat per criterion.
+          // That is what keeps "who confirms what" to exactly one place on the page.
+          function evidenceMatrixGrouped() {
+            const rows = change.tasks.flatMap((task) => {
+              if (!task.acceptanceCriteria.length) return [{ task, criterion: null, latest: null }];
+              return task.acceptanceCriteria.map((criterion) => ({
+                task,
+                criterion,
+                latest: (task.evidence || [])
+                  .filter((item) => item.criterion === criterion && item.planVersion === change.planVersion)
+                  .at(-1),
+              }));
+            });
+            const tallies = matrixTallies(rows);
+            const groups = [];
+            for (const row of rows) {
+              const last = groups.at(-1);
+              if (last && last.task.id === row.task.id) last.rows.push(row);
+              else groups.push({ task: row.task, rows: [row] });
+            }
+            const reviewCell = (task) => {
+              // 「谁在什么范围签的字」现在有独立来源：确认记录优先于任务状态，因此同一条任务
+              // 分几次确认（先确认两条、再确认剩下的）也能如实显示，而不是只回一个「已完成」。
+              const records = (Array.isArray(draft.confirmations) ? draft.confirmations : [])
+                .filter((entry) => entry.taskId === task.id && entry.planVersion === draft.planVersion);
+              const confirmed = records.flatMap((entry) => entry.criteria);
+              const covered = task.acceptanceCriteria.filter((criterion) => confirmed.includes(criterion));
+              const recorded = records.length
+                ? h("div", { className: "ep-confirmations" },
+                    h("p", { className: "ep-muted ep-matrix-scope" },
+                      t("confirmRecorded"), " ", covered.length, " / ", task.acceptanceCriteria.length, " ", t("criterion")),
+                    ...records.map((entry) => h("p", { key: entry.id, className: "ep-muted ep-confirm-meta" },
+                      entry.actor ? entry.actor.kind + ": " + entry.actor.id : "",
+                      " · ", String(entry.confirmedAt || "").slice(0, 16).replace("T", " "),
+                      entry.note ? " · " + entry.note : "")),
+                  )
+                : null;
+              if (!task.requiredApproval) return recorded || "—";
+              if (task.status !== "awaiting-review") return h(React.Fragment, null, recorded, badge(task.status));
+              const count = task.acceptanceCriteria.length;
+              return h(
+                React.Fragment,
+                null,
+                recorded,
+                h(
+                  "p",
+                  { className: "ep-muted ep-matrix-scope" },
+                  task.id + " · " + task.title + " · " + count + " " + t("criterion"),
+                ),
+                button(
+                  "confirmTask",
+                  () => run(() => mutate("transition", { taskId: task.id, status: "completed" })),
+                  busy || unsettled,
+                  true,
+                ),
+              );
+            };
+            return h(
+              "section",
+              { className: "ep-card ep-matrix-card" },
+              h("h3", null, t("matrix")),
+              rows.length > 0 && h("div", { className: "ep-row" },
+                ...[["passed", tallies.passed], ["failed", tallies.failed], ["pendingCriteria", tallies.pending]].map(([label, total]) =>
+                  h("span", { key: label, className: "ep-badge" }, t(label), " ", total),
+                ),
+                tallies.noCriteria > 0 &&
+                  h("span", { key: "noCriteria", className: "ep-badge ep-muted" }, t("noCriteria"), " ", tallies.noCriteria),
+              ),
+              h("p", { className: "ep-muted" }, t("evidenceTruth")),
+              !rows.length
+                ? h("p", null, t("noTasks"))
+                : h(
+                    "div",
+                    { className: "ep-table-scroll" },
+                    h(
+                      "table",
+                      { className: "ep-matrix" },
+                      h(
+                        "thead",
+                        null,
+                        h("tr", null,
+                          ...["taskId", "criterion", "outcome", "evidence", "humanReview"].map((key) =>
+                            h("th", { key, scope: "col" }, t(key)),
+                          ),
+                        ),
+                      ),
+                      h(
+                        "tbody",
+                        null,
+                        ...groups.flatMap(({ task, rows: groupRows }) =>
+                          groupRows.map(({ criterion, latest }, index) =>
+                            h(
+                              "tr",
+                              { key: task.id + ":" + index, className: index === 0 ? "ep-matrix-group" : undefined },
+                              index === 0 &&
+                                h(
+                                  "th",
+                                  { scope: "rowgroup", rowSpan: groupRows.length, className: "ep-matrix-task" },
+                                  h("small", null, task.id),
+                                  h("strong", null, task.title),
+                                  badge(task.status),
+                                ),
+                              h("td", { className: "ep-matrix-criterion" }, criterion || t("noCriteria")),
+                              h(
+                                "td",
+                                { className: "ep-matrix-outcome" },
+                                !criterion
+                                  ? "—"
+                                  : latest
+                                    ? badge(latest.outcome)
+                                    : h("span", { className: "ep-warn" }, t("missingEvidence")),
+                              ),
+                              h(
+                                "td",
+                                { className: "ep-matrix-evidence" },
+                                latest
+                                  ? h(
+                                      React.Fragment,
+                                      null,
+                                      latest.artifact ? h("code", null, latest.artifact) : null,
+                                      latest.note ? h("span", null, latest.note) : null,
+                                      h("small", null,
+                                        [
+                                          latest.actor ? latest.actor.kind + ": " + latest.actor.id : "",
+                                          latest.recordedAt
+                                            ? String(latest.recordedAt).slice(0, 16).replace("T", " ")
+                                            : "",
+                                        ].filter(Boolean).join(" · ")),
+                                    )
+                                  : "—",
+                              ),
+                              index === 0 &&
+                                h("td", { rowSpan: groupRows.length, className: "ep-matrix-review" }, reviewCell(task)),
+                            ),
                           ),
                         ),
                       ),
@@ -3742,49 +4415,71 @@ function abandonmentDirty(forms, changeId) {
             );
           }
           function deliveryReviewView() {
-            const confirmation = bindDelivery(delivery, change);
             const tasksFinalized = change.tasks.some((task) => task.status === "completed") &&
               change.tasks.every((task) => ["completed", "cancelled"].includes(task.status));
             const acceptance = change.deliveryAcceptance;
             const accepted = acceptance?.planVersion === change.planVersion;
             const cancelled = change.tasks.filter((task) => task.status === "cancelled");
+            // What the lock actually froze: the criteria count the confirm button was pressed against.
+            const criteriaTotal = change.tasks.reduce(
+              (total, task) => total + (Array.isArray(task.acceptanceCriteria) ? task.acceptanceCriteria.length : 0),
+              0,
+            );
             const runsLoaded = runsLoadedOf(verificationRuns);
             const runsBlocked = runsBlockedOf(verificationRuns, change.history);
             const eligible = approved && tasksFinalized && runsLoaded && !runsBlocked && !accepted && !unsettled;
             // A fresh core verdict overrides the local approximation; a stale one never blocks acceptance
             // silently, the card says the result belongs to another version.
             const freshGateBlocked = !!gate && gateMatches(gate, change) && !gate.ready;
+            // A disabled confirm button has to say why, in the shortest true sentence: the state of the
+            // delivery, not a restatement of the gate rule the page already prints above.
+            const blockedBy = !approved || freshGateBlocked || !eligible;
+            const deliverReason = busy
+              ? t("toolRunning")
+              : blockedBy
+                ? gateBlockerText(gate?.blockers, t) || t("deliveryPending")
+                : "";
             return h(
               "section",
               { className: "ep-card" },
               h("h3", null, t("deliveryReview")),
-              h("p", { className: "ep-muted" }, t("deliveryTruth")),
-              h("p", { className: tasksFinalized ? "ep-success" : "ep-warn" },
-                t(tasksFinalized ? "technicalComplete" : "technicalIncomplete")),
+
+
               h("p", { className: accepted ? "ep-success" : "ep-warn" },
                 t(accepted ? "deliveryAccepted" : "deliveryPending")),
               accepted && h("p", { className: "ep-muted" }, t("deliveryFrozen")),
               acceptance && h("div", null,
                 !accepted && h("p", { className: "ep-warn" }, t("deliveryHistorical")),
-                h("dl", { className: "ep-grid" },
-                  ...[
-                    ["planVersion", acceptance.planVersion],
-                    ["deliveryActor", acceptance.actor ? acceptance.actor.kind + ": " + acceptance.actor.id : "—"],
-                    ["deliveryAcceptedAt", acceptance.acceptedAt],
-                    ["note", acceptance.note],
-                  ].map(([key, value]) => h("div", { key },
-                    h("dt", { className: "ep-muted" }, t(key)),
-                    h("dd", { style: { margin: "0 0 8px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, String(value ?? "—")))))),
-              cancelled.length > 0 && h("div", { className: "ep-warn" },
+                // While the lock applies it is one readable line — who confirmed, when, which version,
+                // how many criteria froze. The four-row definition list is for the historical case only.
+                accepted
+                  ? h("p", { className: "ep-deliver-locked" },
+                      h("span", null, t("deliveryActor"), " ",
+                        acceptance.actor ? acceptance.actor.kind + ": " + acceptance.actor.id : "—"),
+                      h("span", null, String(acceptance.acceptedAt || "").slice(0, 16).replace("T", " ")),
+                      h("span", null, t("planVersion"), " ", acceptance.planVersion),
+                      h("span", null, criteriaTotal, " ", t("criterion")))
+                  : h("dl", { className: "ep-grid" },
+                      ...[
+                        ["planVersion", acceptance.planVersion],
+                        ["deliveryActor", acceptance.actor ? acceptance.actor.kind + ": " + acceptance.actor.id : "—"],
+                        ["deliveryAcceptedAt", acceptance.acceptedAt],
+                        ["note", acceptance.note],
+                      ].map(([key, value]) => h("div", { key },
+                        h("dt", { className: "ep-muted" }, t(key)),
+                        h("dd", { style: { margin: "0 0 8px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, String(value ?? "—"))))),
+                accepted && acceptance.note &&
+                  h("p", { className: "ep-muted", style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } },
+                    acceptance.note),
+              ),              cancelled.length > 0 && h("div", { className: "ep-warn" },
                 h("p", null, t("deliveryCancelled")),
                 h("ul", null, ...cancelled.map((task) =>
                   h("li", { key: task.id }, task.id + " · " + task.title)))),
-              h("p", { className: "ep-muted" }, t("deliveryEligibility")),
+
               !runsLoaded && h("p", { className: "ep-warn" }, t("deliveryRunsUnloaded")),
               runsBlocked && h("p", { className: "ep-warn" }, t("deliveryBlockedRuns")),
               h("div", { className: "ep-section" },
-                h("h4", null, t("gateTitle")),
-                h("p", { className: "ep-muted" }, t("gateTruth")),
+
                 gateError && h("p", { className: "ep-error" }, gateError),
                 gate && !gateMatches(gate, change) && h("p", { className: "ep-warn" }, t("gateStale")),
                 gate && gateMatches(gate, change) && h("p", { className: gate.ready ? "ep-success" : "ep-warn" },
@@ -3796,21 +4491,21 @@ function abandonmentDirty(forms, changeId) {
                 !gate && !gateError && h("p", { className: "ep-muted" }, t("gateNotQueried"))),
                 gate && gateMatches(gate, change) && Array.isArray(gate.warnings) && gate.warnings.length > 0 &&
                   h("p", { className: "ep-warn" }, gateWarnings(gate.warnings)),
-              button(runsLoaded ? "refresh" : "refreshRunsFirst", () => run(refreshRuns)),
-              field("deliveryNote", delivery.note, (note) =>
-                setDelivery((previous) => ({ ...previous, note })), { multiline: true, required: true, disabled: busy || accepted }),
-              h("label", { className: "ep-row" },
-                h("input", {
-                  type: "checkbox", style: { width: "auto" }, disabled: busy || accepted,
-                  checked: confirmation.confirmed,
-                  onChange: (event) => setDelivery((previous) => ({ ...bindDelivery(previous, change), confirmed: event.target.checked, reconfirm: false })),
-                }),
-                t("deliveryConfirm")),
-              confirmation.reconfirm && h("p", { className: "ep-warn" }, t("deliveryReconfirm")),
-              button("acceptDelivery", () => {
-                if (!eligible || freshGateBlocked || !confirmation.confirmed || !delivery.note.trim()) return;
-                run(() => mutate("acceptDelivery", { note: delivery.note.trim() }));
-              }, !eligible || freshGateBlocked || !confirmation.confirmed || !delivery.note.trim()),
+              (!runsLoaded || gateError || (gate && !gateMatches(gate, change))) &&
+                button(runsLoaded ? "refresh" : "refreshRunsFirst", () => run(refreshRuns)),
+              h("details", { className: "ep-delivery-note" },
+                h("summary", null, t("note")),
+                field("deliveryNote", delivery.note, (note) =>
+                  setDelivery((previous) => ({ ...previous, note })), { multiline: true, disabled: busy || accepted }),
+              ),
+              h("div", { className: "ep-deliver-bar" },
+                !accepted && h("p", { className: deliverReason ? "ep-deliver-reason" : "ep-deliver-reason ep-success" },
+                  deliverReason || t("gateReady")),
+                !accepted && button("acceptDelivery", () => {
+                  if (busy || !eligible || freshGateBlocked) return;
+                  run(() => mutate("acceptDelivery", { note: delivery.note.trim() || t("deliveryButtonNote") }));
+                }, busy || !eligible || freshGateBlocked, true, { "data-reason": deliverReason || t("deliveryPending") }),
+              ),
               unsettled && h("p", { className: "ep-warn" }, t("saveFirst")),
             );
           }
@@ -3855,27 +4550,9 @@ function abandonmentDirty(forms, changeId) {
             return h(
               React.Fragment,
               null,
-              evidenceMatrix(),
-              deliveryReviewView(),
-              archivedReviewsView(),
-              h("details", { className: "ep-card" },
-                h("summary", null, t("dispatchResolutionHistory")),
-                ...(change.history || []).filter((entry) => entry.kind === "dispatch-unknown-resolved").map((entry, index) =>
-                  h("article", { className: "ep-card", key: index },
-                    h("p", null, "runId: ", entry.runId, " · runRevision: ", entry.runRevision),
-                    dispatchResolutionSummary(entry)))),
-              verificationRunsView(),
-              h(
-                "section",
-                { className: "ep-card" },
-                field("tasks", requestTaskId, setRequestTaskId, {
-                  choices: [
-                    ["", t("chooseTask")],
-                    ...change.tasks.map((task) => [task.id, task.title]),
-                  ],
-                }),
-                requestControls("verify", requestTaskId),
-              ),
+              h("div", { className: "ep-quality-main" }, evidenceMatrixGrouped(), deliveryReviewView()),
+              h("details", { className: "ep-card ep-quality-runs", open: !!verificationRuns?.some((record) => ["unknown", "failed", "error", "running", "starting"].includes(record.state)) },
+                h("summary", null, t("qualityRecords")), verificationRunsView()),
               h(
                 "details",
                 null,
@@ -3898,6 +4575,20 @@ function abandonmentDirty(forms, changeId) {
                   ),
                 ),
               ),
+              h("details", { className: "ep-card ep-quality-tools" }, h("summary", null, t("qualityTools")),
+              h("details", { className: "ep-card" }, h("summary", null, t("verifyRequestTools")),
+              h(
+                "section",
+                { className: "ep-card" },
+                field("tasks", requestTaskId, setRequestTaskId, {
+                  choices: [
+                    ["", t("chooseTask")],
+                    ...change.tasks.map((task) => [task.id, task.title]),
+                  ],
+                }),
+                requestControls("verify", requestTaskId),
+              )),
+              h("details", { className: "ep-card ep-manual" }, h("summary", null, t("addEvidence")),
               h(
                 "form",
                 {
@@ -3963,6 +4654,17 @@ function abandonmentDirty(forms, changeId) {
                     t("addEvidence"),
                   ),
                 ),
+              ),
+              ),
+              ),
+              h("details", { className: "ep-card ep-quality-archive" }, h("summary", null, t("qualityArchive")),
+              archivedReviewsView(),
+              h("details", { className: "ep-card" },
+                h("summary", null, t("dispatchResolutionHistory")),
+                ...(change.history || []).filter((entry) => entry.kind === "dispatch-unknown-resolved").map((entry, index) =>
+                  h("article", { className: "ep-card", key: index },
+                    h("p", null, "runId: ", entry.runId, " · runRevision: ", entry.runRevision),
+                    dispatchResolutionSummary(entry)))),
               ),
               h(
                 "details",
@@ -4077,15 +4779,23 @@ function abandonmentDirty(forms, changeId) {
           return h(
             "section",
             { className: "ep", "aria-label": t("title"), "aria-busy": busy },
-            h("style", null, css + viewCss),
-            noticesView,
+            h("style", null, css + viewCss + workspaceCss),
             h(
               "div",
               { className: compact ? "ep-layout ep-compact" : "ep-layout" },
               h(
                 "aside",
                 { className: "ep-side" },
-                h("details", { className: "ep-navigation", open: !globalThis.matchMedia?.("(max-width: 620px)").matches },
+                compact && h("label", { className: "ep-change-picker" },
+                  h("span", null, t("changes")),
+                  h("select", { value: change?.id || "", disabled: busy,
+                    onChange: (event) => { const id = event.target.value; if (id) guarded(() => get(id)); } },
+                    !change && h("option", { value: "" }, t("chooseChange")),
+                    ...changes.map((item) => h("option", { key: item.id, value: item.id }, item.title)),
+                  ),
+                ),
+                h("h2", { className: "ep-brand" }, t("entry")),
+                !compact && h("details", { className: "ep-navigation", open: !globalThis.matchMedia?.("(max-width: 620px)").matches },
                   h("summary", null, t("changes")),
                 h(
                   "div",
@@ -4186,6 +4896,7 @@ function abandonmentDirty(forms, changeId) {
                 "main",
                 { className: "ep-main" },
                 h("div", { className: "ep-workspace" },
+                noticesView,
                 busy && h("p", { role: "status", "aria-live": "polite" }, t("busy")),
                 error &&
                   h(
@@ -4230,8 +4941,12 @@ function abandonmentDirty(forms, changeId) {
                       ? h("span", { className: "ep-badge ep-warn" }, t("readyForReview"))
                       : badge(change.status),
                   ),
-                  change && h("div", { className: "ep-row ep-muted" },
+                  change && h("div", { className: "ep-row ep-muted ep-change-meta" },
+                    h("code", null, String(change.id || "").slice(0, 8)),
                     h("span", null, t("planVersion"), " ", change.planVersion),
+                    h("span", null,
+                      sectionKeys.filter((key) => change.planning?.sections?.[key]?.status === "ready").length,
+                      "/", sectionKeys.length, " ", t("planSectionsReady")),
                     (unsettled || runtimeDirty) && h("span", { className: "ep-warn" }, t("unsaved")),
                   ),
                   change && (unsettled || runtimeDirty) &&
@@ -4304,7 +5019,6 @@ function abandonmentDirty(forms, changeId) {
                         onClick: () => setTab(value),
                       },
                       // The merged planning view keeps the wording the human already knows from the
-                      // former overview tab; the architecture documents live inside it as a fold.
                       t(value === "plan" ? "overview" : value),
                     ),
                   ),
@@ -4318,13 +5032,14 @@ function abandonmentDirty(forms, changeId) {
                         role: "tabpanel",
                         "aria-labelledby": "ep-tab-" + tab,
                       },
-                      h("h3", null, t(tab)),
+                      h("h3", null, t(tab === "plan" ? "overview" : tab)),
                       h(
                         "p",
                         null,
                         t(
                           {
                             plan: "emptyPlanning",
+                            design: "emptyDesign",
                             tasks: "emptyTasks",
                             resources: "emptyQuality",
                           }[tab],
@@ -4498,17 +5213,8 @@ function abandonmentDirty(forms, changeId) {
                           h("p", { className: "ep-muted" }, t("agentHint")),
                           ),
                           requestControls("plan"),
-                          h(
-                            "details",
-                            {
-                              className: "ep-card",
-                              open: archOpen,
-                              onToggle: (event) => setArchOpen(event.currentTarget.open),
-                            },
-                            h("summary", null, t("archSection")),
-                            archOpen && architectureView(),
-                          ),
                         ),
+                      tab === "design" && architectureView(),
                       tab === "tasks" && tasksView(),
                       tab === "resources" && resourcesView(),
                       !compact && betterSidebar?.openTab && h("div", { className: "ep-card" },
@@ -4517,10 +5223,7 @@ function abandonmentDirty(forms, changeId) {
                           button("openInSidebar", () => openSidebar()),
                         ),
                       ),
-                      h("details", { className: "ep-card ep-tools", key: change.id },
-                        h("summary", null, t("advancedInfo")),
-                        h("p", { className: "ep-muted" }, change.id, " · ", t("revision"), " ", change.revision),
-                      ),
+
                     ),
                 output &&
                   h(
@@ -4724,6 +5427,7 @@ function abandonmentDirty(forms, changeId) {
   // action is recovered from the answer's shape; without that every read was titled "list".
   function inferAction(payload) {
     if (!payload) return "query";
+    if (typeof payload.action === "string" && payload.action) return payload.action;
     if (Array.isArray(payload.changes)) return "list";
     if (payload.gate && payload.documents) return "context";
     // gateStatus answers with blockers (the readyTasks answer has none), readyTasks with a ready list.
@@ -4837,13 +5541,16 @@ function abandonmentDirty(forms, changeId) {
   // transcript keeps the record, but a routine read earns a line in the chat flow only when it has
   // something a human must act on (an error, a warning, a blocker, an unresolved run).
   const QUIET_ACTIONS = new Set([
-    "list", "get", "gateStatus", "readyTasks", "verificationRuns", "dispatchRuns", "context", "export", "query",
+    "list", "get", "gateStatus", "readyTasks", "verificationRuns", "dispatchRuns", "context", "export", "query", "mermaidAsset",
   ]);
   // One dim line like every other command row, and never auto-expanded: the row is a record, not an
   // alert dialog, so only a click opens the human-readable detail (no raw JSON in the chat flow).
   function EngineeringCommandRow(props) {
     const node = props.node;
     const running = !node || !node.outcome;
+    // Background commands must never insert a temporary chat row and remove it on success.
+    // Progress is already shown by the workbench that owns the request.
+    if (running) return null;
     if (QUIET_ACTIONS.has(commandAction(node)) && commandSeverity(node) === "quiet") return null;
     const failed = !!node && !!node.outcome && node.outcome.kind === "error";
     const severity = running ? "quiet" : commandSeverity(node);

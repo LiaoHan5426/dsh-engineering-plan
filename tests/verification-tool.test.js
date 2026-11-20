@@ -170,7 +170,7 @@ test('verificationRuns lists and selects records without recovery or plan mutati
   assert.deepEqual(await plan.execute(input, f.exec), { runs: [run] });
   assert.deepEqual(await plan.execute({ ...input, runId: run.runId }, f.exec), { run });
   const human = await f.human.handler({ agent: f.exec.agent, signal: f.exec.signal, rawInput: JSON.stringify(input) });
-  assert.equal(human.kind, 'success'); assert.deepEqual(JSON.parse(human.text), { runs: [run] });
+  assert.equal(human.kind, 'success'); assert.deepEqual(JSON.parse(human.text), { runs: [run], action: 'verificationRuns' });
   assert.deepEqual(await f.runs.get(run.changeId, run.runId), run);
   assert.deepEqual(await f.core.execute({ action: 'get', changeId: f.args.changeId }), before);
   assert.equal(f.jobs.length, 0); assert.equal(f.spawns, 0);

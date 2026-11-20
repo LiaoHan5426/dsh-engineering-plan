@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.3.0 — 第 159 轮：任务详情改为右侧抽屉
+
+- 任务卡不再半屏展开：点卡片本体或「打开详情」在右侧滑出 `role="dialog"` 抽屉（`.ep-task-drawer`，760px 宽、`position:fixed`），点按钮/链接/`details`/输入框不会误触发；抽屉自带关闭按钮，`Esc` 之外的交互都留在抽屉里。
+- 抽屉按原型重排信息：编号 + 状态徽章、标题、`影响模块 · 执行方式 · 是否需人工审批`、任务目标（复用 `documentPreview`）、交付文件、**此刻还不能开始的原因**（`readyReasons` 逐条，取不到时不出这一节）、验收标准「N/M」与每条结果同排右对齐（通过为绿色）。
+- 人工确认入口收进抽屉：只在 `task.status === "awaiting-review"` 时出现一个整宽「确认完成」，点击后关闭抽屉并发起 `transition → completed`；卡片列表里不再有第二个确认入口。
+- 修掉一处会让整个任务视图白屏的作用域错误：`taskDrawerCard()` 原先引用 `tasksView()` 的局部常量 `readyFresh`（TDZ/未定义），React 直接中断渲染、DOM 变空且 `window.onerror` 抓不到；改为在抽屉内自行计算 `readyMatches(ready, change)`。
+- 新增词条 `taskOpenDetail / taskClose / notStarted`；CSS 追加 `.ep-task-open / .ep-task-card-block / .ep-task-drawer* / .ep-criterion-row`，抽屉在 830px 侧栏里仍保持单列可读。
+- 测试：新增 `tests/client-task-drawer.test.js` 8 项（状态归属、按 id 从方案取任务、dialog 语义与唯一关闭、只对待审任务给完成、阻塞原因、结果同排、卡片点击忽略控件、不越界引用棋盘状态，作为上面那处作用域错误的回归护栏）。全套件 693 项（692 pass / 1 skip / 0 fail），`npm run check` 三关通过。
+- 真机复核（CDP 9222，page `FE23E61B3FA9F8DB31ADD2DD5E70665F`）：原型预览抽屉 `srcdoc` 134,718 字符完整渲染；B2 抽屉五段内容正确；B1 抽屉显示「验收标准 1/1 · 通过」与唯一「确认完成」。截图 `design/prototype/shot-real-proto-drawer.png`、`design/prototype/shot-real-task-drawer.png`。
+
+## 0.3.0 — 第 158 轮：方案级 UI 原型产物（阶段 3）
+
+原型要求「涉及 UI 时提供原型预览、截图和设计说明，并显示它们对应的方案版本」。此前截图和原型只能散落在仓库里，方案里没有任何锚点，评审时说不清「你看的是哪一版」。
+
+- `src/core.js` 新增 `prototypes` 数组：每项 `{ pageId, title, htmlPath, screenshotPath, note, planVersion, addedAt }`。`pageId` 唯一且 ≤80 字符，`title` ≤200，`note` ≤2000，数组 ≤20 项；`htmlPath` / `screenshotPath` 由 `prototypePath()` 归一（反斜杠转正斜杠，拒绝盘符、绝对路径与 `..`），只接受工作区相对路径。
+- 版本绑定：`save` 记录本次真正写入的条目，若这次保存触发 `plan-invalidated`（`planVersion++`），这些条目归属**新**版本，未被重写的旧条目保留原版本号 —— 于是「这张图属于 v2、那张属于 v3」在数据里说得清。
+- 旧 state 兼容：缺 `prototypes` 补空数组，存在但不是数组才判 `CORRUPT_STATE`。
+- 导出新增 `## UI prototypes (paths are workspace-relative)` 段，列 `pageId`、`title`、`planVersion`、`htmlPath`、`screenshotPath`、`note`。
+- 客户端新增「UI 原型」卡片：列出页面标题、`pageId`、方案版本与路径，`预览` 在读文件后用 sandbox iframe（`allow-scripts`）内联渲染，`截图` 走 blob URL 显示；抽屉固定在面板右侧，关闭时释放 blob。新增词条 `prototypes`/`prototypeCount`/`prototypeEmpty`/`prototypeOpen`/`prototypeShot`/`prototypeUnreadable`/`prototypeEmptyFile`/`prototypeReadMore`/`prototypeClose`。
+- 修掉一个一直存在但被吞掉的缺陷：客户端 `inject` 未声明 `remote.workspaceFiles`，因此 `client.js` 里读文件与目录监听两处调用**自加入起就抛 `cannot get property "remote.workspaceFiles"`**，被 `try/catch` 静默吞掉 —— 预览读不到文件，文件监听也从未真正生效。现在注入列表含 `remote.workspaceFiles`，两处都能工作。
+- 读文件返回值是 `{ ok, value }` 包装层，`data` 可能是 `Uint8Array`、普通数组、`{ data: [] }` 或字符串，`bytesOf()` 统一归一；空结果直接报「读到的内容是空的」，不再静默渲染空白 iframe。
+- 测试：新增 `tests/core-prototypes.test.js` 7 项（登记与版本号、路径越界四种拒绝、反斜杠归一与空路径、`pageId`/`title` 必需与未知字段、`plan-invalidated` 时归属新版本、旧 state 兼容、导出段落）；`tests/client-sidebar.test.js` 的 inject 断言同步。套件 685 项 / 684 通过 / 1 skip。
+
+
+## 0.3.0 — 第 157 轮：评审意见与人工确认成为独立对象（阶段 2）
+
+原型阶段 2 的两项契约扩展。此前「哪一块要改成什么样」只能写进对话，「谁签的字」只能从任务状态反推；这一轮把它们做成 state 里的一等对象。
+
+- `opinion`（`changeId`、`scope`、`body`）：`scope.kind` 取 `change`/`section`/`document`/`task`/`diagram`，`key` 必须对得上真实对象（未知章节、未收录文档、不存在的任务直接报错），因此意见永远有明确归属。写入 `state.opinions[]`，不改方案、不锁版本，Agent 从对话提炼也能写；已接受交付的变更要求先人工 `replan`（`DELIVERY_LOCKED`）。
+- `resolveOpinion`（`opinionId`、`resolution`）：只有人能宣布一条意见已处理（Agent 调用返回 `FORBIDDEN`）；重复处理 `INVALID_STATE`。`save`/`replan` 让 `planVersion` 前进时，仍 `open` 的意见自动记上 `addressedByPlanVersion`，回答「这条意见在第几版被回应」。
+- `confirm`（`taskId`，可选 `criteria`、`note`）：按范围记账，省略 `criteria` 表示确认该任务全部验收标准，给子集表示只确认这几条；`criteria` 必须属于该任务，`planVersion` 相同且范围相同重复确认 `INVALID_STATE`。写入 `state.confirmations[]`。
+- 人工点「确认完成」把 `requiredApproval` 任务推到 `completed` 时，核心自动补一条等价确认记录，`confirmations` 因此始终是独立来源，不必从任务状态反推；Agent 走不到这条路径。
+- 旧 state 缺这两个集合时按空数组读出（`readState` 只把「存在但不是数组」判为损坏），v0.3.0 之前的变更无需迁移。
+- 工作台：开发规划页新增「评审意见」卡片（scope 选择 + 正文 + 记录人/时间 + 「标记已处理」）；质量门禁矩阵人工列优先显示确认记录（覆盖条数、确认人、时间、备注），没有记录才回落到任务状态徽章与确认按钮。
+- 同步：`index.js` 的 `actions` 与工具 schema 增加三项，`resolveOpinion`/`confirm` 列入「仅人工入口」（模型工具调用返回 `ENGINEERING_HUMAN_APPROVAL_REQUIRED`）；README 增两节并更新入口说明；`tests/core-review-notes.test.js` 8 项覆盖写入规则、人的专属动作、版本时间线与旧 state 兼容。
+- 套件 678 项（677 pass / 1 skip）。已知既有脆弱点：`tests/run-record-crash.test.js` / `tests/dispatch-record-crash.test.js` 各 spawn 三个子进程做 5000 轮写入，多文件并发时偶发 1 项超时（单跑稳定通过），与本轮改动无关。
+
+
+## 0.3.0 — 第 156 轮：按已确认原型改造工作台（阶段 0）
+
+原型定稿在 `design/prototype/`（OpenDesign 生成 + 自检），本轮只做零契约变更的渲染层改造，全部在 `client.js`：
+
+- 任务看板七列固定：`pending / running / verifying / awaiting-review / blocked / failed / completed`（`cancelled` 不进列，避免空列占位），空列渲染 `.ep-column-empty` 说明「尚无任务…」，列 `min-height:220px` 并 `align-items:stretch`，横向滚动保留（`scrollWidth 1892 / clientWidth 731`）。
+- 任务卡首屏回答五件事：`ep-task-id`（编号）+ 状态徽章 → 标题 → 交付文件（`expectedFiles` 前两项，多出的显示 `+N`）→ 影响模块/执行方式/是否需人工审批 → 验收进度 `验收标准 n/m`（新增 `acceptanceProgressText()`，按 passed 的 criterion 去重计数）。
+- 质量门禁矩阵按任务合并：新增 `evidenceMatrixGrouped()`，表头收敛为五列（任务 ID / 验收标准 / 结果 / 验收证据 / 人工审核），任务列与人工确认列用 `rowSpan` 只渲染一次；原来 8 列在 830px 面板里被压成竖排文字的问题随之消失。证据列把产物路径、备注、记录者与时间收进同一格。
+- 人工确认入口唯一：`reviewCell()` 只在 `requiredApproval && awaiting-review` 时输出一个「确认完成」，并在上方写明确认范围（`B1 · 实现门禁归属（需要人工确认） · 1 验收标准`）。
+- 交付条固定在页面底部：`.ep-deliver-bar` 左侧是 `验收 n 条 · 通过 x · 失败 y · 缺证据 z` 与可选备注，右侧是唯一交付按钮；按钮禁用时旁边直接写原因（`deliveryPending` / `toolRunning`），原因同时写进 `title`，满足「禁用要能说明具体原因」。
+- 工具条不再折行：`.ep-task-toolbar{flex-wrap:nowrap}`，筛选 chips 变成单行可横向滚动（细滚动条），列表/看板切换与「添加任务」固定在右端。
+
+- 变更条压成一行：`<变更短 id> · 方案版本 n · k/6 项已就绪`，标题与状态徽章同行，目标与「下一步」保持可见（原型要求「变更切换紧凑、当前方案首屏可见」）。
+- 交付条禁用原因来自门禁本身：新增 `GATE_BLOCKER_KEYS` / `gateBlockerText()`，把 `gateStatus.blockers` 的 `APPROVAL_REQUIRED / TASK_NOT_TERMINAL / ACTIVE_RUN / UNRESOLVED_UNKNOWN / NO_COMPLETED_TASK / MISSING_EVIDENCE` 翻成一句话（最多两条 + `+n`），不再笼统说「待用户确认」；实测 fixture B 显示「仍有任务未进入终态；还没有已完成的任务」。
+- 交付锁一行读完：已交付时把「确认人 · 时间 · 方案版本 · 冻结的验收条数」排成一行（`.ep-deliver-locked`），备注另起一段；历史版本（`deliveryAcceptance.planVersion` 与当前不符）仍用四行定义列表。
+
+测试：`client.js:619` 的 `gateBlocked` 声明补齐 6 空格缩进（locale 覆盖测试只认这个声明位置）；`tests/client-gate.test.js` 断言更新并新增交付条两条；`tests/repo-root.test.js` 白名单加 `design`。全量 670 项 / 669 pass / 1 skip / 0 fail，`npm run check` 三关通过。
+
+真实 GUI 复核（CDP，9222 端口）：页签四项、看板七列、卡片字段、矩阵分组与唯一确认按钮、交付条原因、顶部「需要你处理 1 项待你确认完成」全部与原型一致；截图见 `design/prototype/shot-real-board.png` 与 `shot-real-gate.png`。
+
 ## 0.3.0 — 第 155 轮：瘦身与一次误删的恢复
 
 - 精简不再使用的词条：删掉 13 个只声明不引用的 i18n 条目（`editArchitecture`、`advancedDesign`、`liteModeHint`、`standardModeHint`、`selectChange`、`diagramHint`、`planRequest`、`taskRequest`、`verifyRequest`、`sourceOnly`、`emptyArchitecture`、`errUnknownCode`、`commandRequest`，共 14 处声明）。全量套件与 `npm run check`（语法/词条重复/声明顺序）保持全绿。

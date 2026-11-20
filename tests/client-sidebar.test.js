@@ -35,7 +35,7 @@ test("inject stays a string array so the client module keeps loading", () => {
   const start = source.indexOf("return {\n      inject:");
   assert.notEqual(start, -1);
   const block = source.slice(start, start + 200);
-  assert.match(block, /inject: \["slots", "locale", "remote", "remote\.commands"\]/);
+  assert.match(block, /inject: \["slots", "locale", "remote", "remote\.commands", "remote\.workspaceFiles", "connection"\]/);
   assert.doesNotMatch(source, /inject: \{ required:/, "the object form stopped the module from loading");
 });
 

@@ -115,6 +115,24 @@ function scopeOverlap(a, b) {
   if (left.endsWith('/')) return right.startsWith(left);
   return right.endsWith('/') && left.startsWith(right);
 }
+// 评审意见指向「方案的某一块」：章节、文档、图、任务，或整份变更。指向哪一块决定它在工作台
+// 出现在哪张卡片下面，所以 key 必须能对上真实存在的对象，否则意见会漂在界面上没人认领。
+const OPINION_SCOPES = ['change', 'section', 'document', 'task', 'diagram'];
+function opinionScope(value, s) {
+  keys(value, ['kind', 'key'], 'opinion scope');
+  if (!OPINION_SCOPES.includes(value.kind)) fail('INVALID_INPUT', 'Invalid opinion scope kind');
+  const key = text(value.key ?? '', 'scope key', 300);
+  if (value.kind === 'section' && !PLANNING_SECTIONS.includes(key)) fail('INVALID_INPUT', 'Unknown planning section');
+  if (value.kind === 'document' && !DOCS.includes(key)) fail('INVALID_INPUT', 'Unknown document');
+  if (value.kind === 'diagram' && !DIAGRAMS.includes(key)) fail('INVALID_INPUT', 'Unknown diagram');
+  if (value.kind === 'task' && !s.tasks.some(t => t.id === key)) fail('TASK_NOT_FOUND', 'Task not found');
+  if (value.kind !== 'change' && !key) fail('INVALID_INPUT', 'Opinion scope requires a key');
+  return { kind: value.kind, key };
+}
+function sameSet(left, right) {
+  const a = [...new Set(left)].sort(), b = [...new Set(right)].sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
 function planTasks(value) {
   const tasks = array(value, 'tasks').map(t => {
     keys(t, ['id', 'title', 'description', 'dependencies', 'expectedFiles', 'acceptanceCriteria', 'verificationCommands', ...TASK_METADATA], 'task');
@@ -145,6 +163,38 @@ function references(value) {
   });
   if (new Set(refs.map(r => r.id)).size !== refs.length) fail('INVALID_INPUT', 'Duplicate reference id');
   return refs;
+}
+// 原型产物只登记「在哪里、属于哪个方案版本」，不复制文件内容：工作区是唯一真源，
+// 客户端按路径现读。路径必须是工作区相对路径，否则渲染端会读到工作区之外的任意文件。
+function prototypePath(value, name) {
+  if (value === undefined || value === '') return '';
+  const raw = text(value, name, 300);
+  if (!raw) return '';
+  if (/^[a-zA-Z]:/.test(raw) || raw.startsWith('/') || raw.startsWith('\\')) fail('INVALID_INPUT', `${name} must be relative to the workspace`);
+  const parts = raw.split(/[\\/]/);
+  if (parts.includes('..')) fail('INVALID_INPUT', `${name} must stay inside the workspace`);
+  return parts.filter(Boolean).join('/');
+}
+function prototypes(value, planVersion) {
+  const list = array(value, 'prototypes');
+  if (list.length > 20) fail('LIMIT_EXCEEDED', 'Too many prototypes');
+  const seen = new Set();
+  return list.map((item, index) => {
+    const at = `prototypes[${index}]`;
+    keys(item, ['pageId', 'title', 'htmlPath', 'screenshotPath', 'note'], at);
+    const pageId = text(item.pageId ?? '', `${at}.pageId`, 80, true);
+    if (seen.has(pageId)) fail('INVALID_INPUT', 'Duplicate prototype pageId');
+    seen.add(pageId);
+    return {
+      pageId,
+      title: text(item.title ?? '', `${at}.title`, 200, true),
+      htmlPath: prototypePath(item.htmlPath, `${at}.htmlPath`),
+      screenshotPath: prototypePath(item.screenshotPath, `${at}.screenshotPath`),
+      note: text(item.note ?? '', `${at}.note`, 2000),
+      planVersion,
+      addedAt: new Date().toISOString(),
+    };
+  });
 }
 async function secureDirectory(target) {
   const absolute = path.resolve(target), parsed = path.parse(absolute);
@@ -183,6 +233,13 @@ async function readState(file) {
     Object.assign(task, metadata);
   }
   state.deliveryAcceptance ??= null;
+  // 旧 state（本字段引入前写的）按空集合读出；存在但不是数组才算损坏。
+  if (state.opinions !== undefined && !Array.isArray(state.opinions)) fail('CORRUPT_STATE', 'Invalid stored opinions');
+  if (state.confirmations !== undefined && !Array.isArray(state.confirmations)) fail('CORRUPT_STATE', 'Invalid stored confirmations');
+  if (state.prototypes !== undefined && !Array.isArray(state.prototypes)) fail('CORRUPT_STATE', 'Invalid stored prototypes');
+  state.opinions ??= [];
+  state.confirmations ??= [];
+  state.prototypes ??= [];
   return state;
 }
 async function atomic(file, content) {
@@ -426,6 +483,9 @@ const actions = {
   transition: ['action', 'changeId', 'expectedRevision', 'taskId', 'status', 'reason'],
   amendTask: ['action', 'changeId', 'expectedRevision', 'taskId', 'taskPatch'],
   evidence: ['action', 'changeId', 'expectedRevision', 'taskId', 'criterion', 'outcome', 'note', 'artifact'],
+  opinion: ['action', 'changeId', 'expectedRevision', 'scope', 'body'],
+  resolveOpinion: ['action', 'changeId', 'expectedRevision', 'opinionId', 'resolution'],
+  confirm: ['action', 'changeId', 'expectedRevision', 'taskId', 'criteria', 'note'],
   context: ['action', 'changeId'], export: ['action', 'changeId', 'expectedRevision'],
   gateStatus: ['action', 'changeId'],
   readyTasks: ['action', 'changeId']
@@ -581,7 +641,7 @@ export class EngineeringStore {
       if (action === 'create') {
         if (await safeFile(file)) fail('CHANGE_EXISTS', 'Change already exists; use get to resume');
         if (!['lite', 'standard'].includes(input.mode ?? 'standard')) fail('INVALID_INPUT', 'Invalid mode');
-        s = { schemaVersion: 1, id, title: text(input.title, 'title', 300, true), goal: text(input.goal, 'goal'), mode: input.mode ?? 'standard', revision: 1, planVersion: 1, status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), documents: Object.fromEntries(DOCS.map(k => [k, ''])), planning: defaultPlanning(), deliveryAcceptance: null, tasks: [], references: [], approvals: [], evidence: [], history: [], diagrams: Object.fromEntries(DIAGRAMS.map(k => [k, ''])) };
+        s = { schemaVersion: 1, id, title: text(input.title, 'title', 300, true), goal: text(input.goal, 'goal'), mode: input.mode ?? 'standard', revision: 1, planVersion: 1, status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), documents: Object.fromEntries(DOCS.map(k => [k, ''])), planning: defaultPlanning(), deliveryAcceptance: null, tasks: [], references: [], approvals: [], evidence: [], opinions: [], confirmations: [], prototypes: [], history: [], diagrams: Object.fromEntries(DIAGRAMS.map(k => [k, ''])) };
       } else s = await readState(file);
       if (s.id !== id) fail('CORRUPT_STATE', 'State identifier mismatch');
       if (action === 'get') return { change: s };
@@ -687,7 +747,7 @@ export class EngineeringStore {
       }
       if (action === 'save') {
         if (!['draft', 'approved'].includes(s.status)) fail('PLAN_LOCKED', 'Plan has started');
-        keys(input.patch, ['title', 'goal', 'documents', 'tasks', 'references', 'diagrams', 'planning'], 'patch');
+        keys(input.patch, ['title', 'goal', 'documents', 'tasks', 'references', 'diagrams', 'planning', 'prototypes'], 'patch');
         const previousPlan = currentApproval(s) ? clone(s) : null;
         if (previousPlan) delete previousPlan.history;
         const p = input.patch;
@@ -697,12 +757,18 @@ export class EngineeringStore {
         if ('goal' in p) s.goal = text(p.goal, 'goal');
         if ('documents' in p) { keys(p.documents, DOCS, 'documents'); for (const [key, value] of Object.entries(p.documents)) s.documents[key] = text(value, key, 100000); }
         if ('tasks' in p) s.tasks = planTasks(p.tasks);
+        // 原型产物绑定方案版本：本次写入的条目在被方案失效推高版本后归属新版本，
+        // 而上一轮登记、这次没有重写的条目保留原版本号，读模型因此能看出「哪些页面原型是新版的」。
+        let touchedPrototypes = null;
+        if ('prototypes' in p) { touchedPrototypes = prototypes(p.prototypes, s.planVersion); s.prototypes = touchedPrototypes; }
         if ('references' in p) s.references = references(p.references);
         if (currentApproval(s)) {
           s.history.push({ kind: 'plan-invalidated', recordedAt: new Date().toISOString(), actor, snapshot: previousPlan });
           s.planVersion++; s.approvals = []; s.evidence = []; s.deliveryAcceptance = null;
+          s.opinions.forEach(o => { if (o.status === 'open' && !o.addressedByPlanVersion) o.addressedByPlanVersion = s.planVersion; });
           s.tasks.forEach(t => { t.status = 'pending'; t.evidence = []; delete t.reason; });
         }
+        if (touchedPrototypes) touchedPrototypes.forEach(pt => { pt.planVersion = s.planVersion; });
       }
       if (action === 'replan') {
         if (actor.kind !== 'user') fail('FORBIDDEN', 'Only a user can replan');
@@ -710,7 +776,51 @@ export class EngineeringStore {
         const snapshot = clone(s); delete snapshot.history;
         s.history.push({ kind: 'replan', recordedAt: new Date().toISOString(), actor, snapshot });
         s.planVersion++; s.approvals = []; s.evidence = []; s.deliveryAcceptance = null; delete s.startedAt;
+        s.opinions.forEach(o => { if (o.status === 'open' && !o.addressedByPlanVersion) o.addressedByPlanVersion = s.planVersion; });
         s.tasks.forEach(t => { t.status = 'pending'; t.evidence = []; delete t.reason; });
+      }
+      if (action === 'opinion') {
+        // 意见不是审批：它不改方案、不锁版本，只把「哪一块要改成什么样」记下来，等 DSH 下一版
+        // 方案回应它。因此提意见不需要额外权限，Agent 从对话里提炼也要能写。
+        if (s.deliveryAcceptance?.planVersion === s.planVersion) fail('DELIVERY_LOCKED', 'Accepted delivery requires human replan before new opinions');
+        if (!Array.isArray(s.opinions)) s.opinions = [];
+        if (s.opinions.length >= 200) fail('LIMIT_EXCEEDED', 'Too many opinions');
+        const scope = opinionScope(input.scope, s);
+        const body = text(input.body, 'body', 4000, true);
+        const recordedAt = new Date().toISOString();
+        const opinion = { id: randomUUID(), planVersion: s.planVersion, scope, body, actor, createdAt: recordedAt, status: 'open', addressedByPlanVersion: null, resolution: '', resolvedBy: null, resolvedAt: null };
+        s.opinions.push(opinion);
+        s.history.push({ kind: 'opinion-recorded', opinionId: opinion.id, planVersion: s.planVersion, scope, actor, recordedAt });
+      }
+      if (action === 'resolveOpinion') {
+        // 只有人能宣布「这条意见已经处理完了」：Agent 自己说已处理，等于自己给自己结账。
+        if (actor.kind !== 'user') fail('FORBIDDEN', 'Only a user can resolve an opinion');
+        const opinion = (s.opinions ?? []).find(o => o.id === input.opinionId);
+        if (!opinion) fail('NOT_FOUND', 'Opinion not found');
+        if (opinion.status !== 'open') fail('INVALID_STATE', 'Opinion is already resolved');
+        const resolvedAt = new Date().toISOString();
+        opinion.status = 'addressed';
+        opinion.resolution = text(input.resolution ?? '', 'resolution', 4000);
+        opinion.resolvedBy = actor; opinion.resolvedAt = resolvedAt;
+        s.history.push({ kind: 'opinion-resolved', opinionId: opinion.id, planVersion: s.planVersion, actor, recordedAt: resolvedAt });
+      }
+      if (action === 'confirm') {
+        // 人工确认按「范围」记账：同一条变更里同一任务可能分几次确认，谁确认了哪几条必须留痕，
+        // 否则后面无法回答「这条验收是谁签的字」。
+        if (actor.kind !== 'user') fail('FORBIDDEN', 'Only a user can confirm criteria');
+        if (!currentApproval(s)) fail('APPROVAL_REQUIRED', 'Current plan must be approved');
+        const task = s.tasks.find(t => t.id === input.taskId);
+        if (!task) fail('TASK_NOT_FOUND', 'Task not found');
+        const criteria = input.criteria === undefined ? task.acceptanceCriteria.slice() : strings(input.criteria, 'criteria');
+        if (!criteria.length) fail('INVALID_INPUT', 'Confirmation requires at least one criterion');
+        for (const criterion of criteria) if (!task.acceptanceCriteria.includes(criterion)) fail('INVALID_INPUT', 'Confirmation names an unknown criterion');
+        if (!Array.isArray(s.confirmations)) s.confirmations = [];
+        const same = s.confirmations.find(c => c.taskId === task.id && c.planVersion === s.planVersion && sameSet(c.criteria, criteria));
+        if (same) fail('INVALID_STATE', 'These criteria were already confirmed for this plan version');
+        const confirmedAt = new Date().toISOString();
+        const confirmation = { id: randomUUID(), taskId: task.id, planVersion: s.planVersion, criteria, actor, confirmedAt, note: text(input.note ?? '', 'note', 4000) };
+        s.confirmations.push(confirmation);
+        s.history.push({ kind: 'task-confirmed', taskId: task.id, planVersion: s.planVersion, criteria, actor, recordedAt: confirmedAt });
       }
       if (action === 'approve') {
         if (actor.kind !== 'user') fail('FORBIDDEN', 'Only a user can approve');
@@ -792,6 +902,18 @@ export class EngineeringStore {
           }
           if (target === 'blocked') t.reason = text(input.reason, 'block reason', 4000, true);
           else delete t.reason;
+          // 人点了「确认完成」，等于对这几条验收签了字：留一条确认记录，门禁矩阵才有独立来源，
+          // 而不是从任务状态反推是谁签的。Agent 走不到这里（requiredApproval 的任务在上一行被改写成
+          // awaiting-review，没有 requiredApproval 的任务不需要人签）。
+          if (target === 'completed' && t.requiredApproval && actor.kind === 'user') {
+            if (!Array.isArray(s.confirmations)) s.confirmations = [];
+            const already = s.confirmations.find(c => c.taskId === t.id && c.planVersion === s.planVersion && sameSet(c.criteria, t.acceptanceCriteria));
+            if (!already) {
+              const confirmedAt = new Date().toISOString();
+              s.confirmations.push({ id: randomUUID(), taskId: t.id, planVersion: s.planVersion, criteria: t.acceptanceCriteria.slice(), actor, confirmedAt, note: '' });
+              s.history.push({ kind: 'task-confirmed', taskId: t.id, planVersion: s.planVersion, criteria: t.acceptanceCriteria.slice(), actor, recordedAt: confirmedAt });
+            }
+          }
           t.status = target;
         }
       }
@@ -829,12 +951,18 @@ export class EngineeringStore {
             return `- ${kind} ${run.runId}: ${run.taskId} — ${run.state}${detail}${code}`;
           }).join('\n') + '\n\nRuntime records are host-observed attempts, not acceptance: a succeeded command is not a passed criterion, and a returned dispatch is not a completed task.\n'
           : '\n\n## Runs for this plan version\n\nNo verification or dispatch run is recorded for this plan version. That is not proof the commands were never run elsewhere.\n';
+        const prototypeSection = s.prototypes.length
+          ? '\n\n## UI prototypes (paths are workspace-relative)\n\n' + s.prototypes.map(pt => `- ${pt.pageId}: ${pt.title} — plan v${pt.planVersion}` +
+            (pt.htmlPath ? `\n  html: ${pt.htmlPath}` : '') +
+            (pt.screenshotPath ? `\n  screenshot: ${pt.screenshotPath}` : '') +
+            (pt.note ? `\n  note: ${pt.note}` : '')).join('\n') + '\n\nPaths name files in the workspace; the export does not copy their content.\n'
+          : '\n\n## UI prototypes (paths are workspace-relative)\n\nNo prototype is registered for this change.\n';
         const progress = path.join(directory, 'progress.md');
         const acceptance = s.deliveryAcceptance;
         const delivery = '\n\n## Delivery acceptance (explicit human confirmation)\n\n' +
           (acceptance ? `Accepted plan version: ${acceptance.planVersion}\nActor: ${acceptance.actor.kind}:${acceptance.actor.id}\nAccepted at: ${acceptance.acceptedAt}\nNote: ${acceptance.note}\n` : 'Not accepted for the current plan version.\n') +
           '\nThis records user delivery confirmation, not independent execution testing.\n';
-        await atomic(progress, `# ${s.title}\n\n${s.goal}\n\nRevision: ${s.revision}\nPlan version: ${s.planVersion}\nStatus: ${s.status}\n\n` + `## Planning readiness (self-reported)\n\nReview requirements: ${s.planning.reviewRequirements}\n\n` + PLANNING_SECTIONS.map(key => `- ${key}: ${s.planning.sections[key].status}\n  ${s.planning.sections[key].note}`).join('\n') + '\n\n## Tasks\n\n' + s.tasks.map(t => `- [${t.status === 'completed' ? 'x' : ' '}] ${t.id}: ${t.title} — ${t.status}${t.reason ? ` (${t.reason})` : ''}`).join('\n') + '\n' + runSection + delivery); files.push(progress);
+        await atomic(progress, `# ${s.title}\n\n${s.goal}\n\nRevision: ${s.revision}\nPlan version: ${s.planVersion}\nStatus: ${s.status}\n\n` + `## Planning readiness (self-reported)\n\nReview requirements: ${s.planning.reviewRequirements}\n\n` + PLANNING_SECTIONS.map(key => `- ${key}: ${s.planning.sections[key].status}\n  ${s.planning.sections[key].note}`).join('\n') + '\n\n## Tasks\n\n' + s.tasks.map(t => `- [${t.status === 'completed' ? 'x' : ' '}] ${t.id}: ${t.title} — ${t.status}${t.reason ? ` (${t.reason})` : ''}`).join('\n') + '\n' + runSection + prototypeSection + delivery); files.push(progress);
         // Retention is deliberate: an export never deletes files. That also means a directory can hold
         // projections from an earlier export (for example standard exports followed by a lite one).
         // Record what this run wrote and which known projections it did not, so the caller can tell

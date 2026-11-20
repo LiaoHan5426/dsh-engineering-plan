@@ -126,11 +126,29 @@ cd dsh-engineering-plan
 
 另有三个通用只读动作：`list` 返回变更摘要与逐条读取警告（单个损坏条目不拖垮整表），`get` 返回完整状态（损坏或缺失时直接报错，不猜），`context` 返回供 Agent 恢复工作的紧凑投影——文档每篇截断到 1000 字符，并给出 `documentsTruncated` 与 `documentLengths`，先用它们判断是否需要 `get` 读全文。 `context` 的 `gate` 块另带 `commands: { total, succeeded, failed, unrun }`——只给四个计数（逐条运行记录请用 `gateStatus`），使恢复上下文的模型能判断命令是否执行过。
 
-写操作（`create`、`save`、`amendTask`、`transition`、`evidence`、`export`、`replan`）中，`save`/`amendTask`/`replan`/`export` 需要 `expectedRevision`；`approve`、`replan`、`acceptDelivery`、`resolveUnknown`、`resolveDispatchUnknown`、`abandonRun` 只对人工入口开放，模型工具列表里没有它们。
+写操作（`create`、`save`、`amendTask`、`transition`、`evidence`、`opinion`、`export`、`replan`）中，`save`/`amendTask`/`replan`/`export` 需要 `expectedRevision`；`approve`、`replan`、`acceptDelivery`、`resolveUnknown`、`resolveDispatchUnknown`、`abandonRun`、`resolveOpinion`、`confirm` 只对人工入口开放，模型工具列表里没有 `resolveOpinion`/`confirm`。
 
    任务要改主意就用 `amendTask`（`changeId`、`taskId`、`taskPatch`）：标题、描述、依赖、声明文件、验收标准、验证命令与元数据都能改，依赖环、重复 id、文件冲突按 `save` 的同一套规则重算；验收标准变了会清掉该任务已经攒下的证据。
 
    质检出结果后不需要人逐条点完成：任务 `requiredApproval` 为 `false` 时，证据齐了执行方直接把任务推到 `completed`；为 `true` 时同一个请求只落到 `awaiting-review`（整体 `status` 也变成 `awaiting-review`），只有人在工作台确认才算完成。
+
+### 评审意见（`opinion` / `resolveOpinion`）
+
+`opinion`（`changeId`、`scope`、`body`）把「方案里哪一块要改成什么样」记成一条独立对象，`scope.kind` 取 `change`/`section`/`document`/`task`/`diagram`，配一个能对上真实对象的 `key`（未知章节、未收录文档、不存在的任务直接报错）。它不改方案、不锁版本，因此 Agent 从对话里提炼意见也能写；已交付的变更需要先人工 `replan`。
+
+`save` 或 `replan` 让 `planVersion` 前进时，仍处于 `open` 的意见会被记上 `addressedByPlanVersion`，回答「这条意见在第几版被回应」。宣布「已处理」只能由人做（`resolveOpinion`：`opinionId`、`resolution`），Agent 自己结账不予受理。
+
+### 人工确认（`confirm`）
+
+`confirm`（`changeId`、`taskId`，可选 `criteria`、`note`）按**范围**记账：省略 `criteria` 表示确认该任务的全部验收标准，给出子集表示只确认这几条。`criteria` 必须属于该任务，同一 `planVersion` 上同一范围重复确认会被拒。人工在工作台点「确认完成」把 `requiredApproval` 任务推到 `completed` 时，核心会自动补一条等价记录，因此 `confirmations` 始终是「谁在什么范围签的字」的独立来源，不必从任务状态反推。
+
+### UI 原型产物（`prototypes`）
+
+方案里涉及界面时，原型与截图挂在方案上：`save` 的 `patch.prototypes` 是数组，每项 `{ pageId, title, htmlPath, screenshotPath, note }`，`pageId` 在方案内唯一。两个路径都是**工作区相对路径**（反斜杠会归一为正斜杠，盘符、绝对路径与 `..` 被拒），因为工作台按工作区根解析它们。
+
+条目带 `planVersion`：「这张图属于哪一版」。当一次保存触发重新规划（`planVersion` 前进），本次写入的条目归属新版本，未被重写的旧条目保留原版本号；因此评审时能分辨「当前版本的原型」与「历史版本的原型」。已交付的变更要先人工 `replan` 才能改原型。
+
+工作台「UI 原型」卡片把 `htmlPath` 读进 sandbox iframe（`allow-scripts`，与主页面不同源）就地预览，`screenshotPath` 以 blob URL 显示；读不到文件时给出具体原因而不是空白框。导出时这一节写作 `## UI prototypes (paths are workspace-relative)`。
 
 ## 用户交付评审
 
@@ -186,7 +204,7 @@ npm run check
 node scripts/validate-package.mjs
 ```
 
-当前完整套件为 669 项（668 通过、1 项可选真实 Chromium 测试默认跳过），`node --test --test-reporter=dot tests/*.test.js` 退出码 0；更早的 242 项、197 项、90 项数字均为当时阶段的历史结果。执行适配集成测试中的subagents/jobs/shell使用模拟服务，测试数量不代表真实链路验收。真实 engineering_dispatch 未审批拦截已验证，前后派发记录为空。0.3.0 已安装启用；真实页面三页签、smoke 计划创建/读取、质量矩阵、运行记录、导出 14 文件、恢复上下文、状态流转选项、并行分支 DAG、三张 Mermaid 图与英文界面均已按 DOM 读数核实，浅色外观下的状态色对比度缺陷已修复。实际 engineering_verify 对未审批 smoke 返回人工批准门禁错误、runs 为空；已批准 v1 的派发 returned、验证因 PowerShell 无 printf 失败并如实记录。任务结构体在 0.3.0 已支持 `affectedModules`/`executor`/`requiredApproval`/`maxRetries` 四个规划字段，界面可编辑、导出进 `tasks.json`；其中 `requiredApproval` 决定收尾归属（`true` 时 Agent 证据齐只能推到「待人工审核」，人工确认才完成；`false` 时证据齐自动完成），其余三个仍是元数据，不驱动任何自动执行或重试；超长模块名与越界重试次数在表单内即时提示并禁用「应用到草稿」，不会被静默保存或悄悄夹取。正向闭环与像素级视觉仍待验收。详细结果见 [验证记录](docs/VERIFICATION.md)，原始需求映射见 [验收跟踪](docs/UI-ACCEPTANCE.md)。
+当前完整套件为 693 项（692 通过、1 项可选真实 Chromium 测试默认跳过），`node --test --test-reporter=dot tests/*.test.js` 退出码 0；更早的 242 项、197 项、90 项数字均为当时阶段的历史结果。执行适配集成测试中的subagents/jobs/shell使用模拟服务，测试数量不代表真实链路验收。真实 engineering_dispatch 未审批拦截已验证，前后派发记录为空。0.3.0 已安装启用；真实页面三页签、smoke 计划创建/读取、质量矩阵、运行记录、导出 14 文件、恢复上下文、状态流转选项、并行分支 DAG、三张 Mermaid 图与英文界面均已按 DOM 读数核实，浅色外观下的状态色对比度缺陷已修复。实际 engineering_verify 对未审批 smoke 返回人工批准门禁错误、runs 为空；已批准 v1 的派发 returned、验证因 PowerShell 无 printf 失败并如实记录。任务结构体在 0.3.0 已支持 `affectedModules`/`executor`/`requiredApproval`/`maxRetries` 四个规划字段，界面可编辑、导出进 `tasks.json`；其中 `requiredApproval` 决定收尾归属（`true` 时 Agent 证据齐只能推到「待人工审核」，人工确认才完成；`false` 时证据齐自动完成），其余三个仍是元数据，不驱动任何自动执行或重试；超长模块名与越界重试次数在表单内即时提示并禁用「应用到草稿」，不会被静默保存或悄悄夹取。正向闭环与像素级视觉仍待验收。详细结果见 [验证记录](docs/VERIFICATION.md)，原始需求映射见 [验收跟踪](docs/UI-ACCEPTANCE.md)。
 
 - `src/core.js`：数据契约校验、存储、版本、依赖与证据状态机。
 - `index.js`：Host 工具和人工命令适配，共用同一领域操作。

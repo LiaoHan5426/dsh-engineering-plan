@@ -90,7 +90,7 @@ test('the task card shows a compact meta line between the header and the depende
   const meta = source.indexOf('taskMetaText(task, t)');
   assert.ok(meta > 0, 'the card must render the meta line');
   assert.ok(meta > source.indexOf('badge(task.status)'), 'the meta line follows the header badge');
-  assert.ok(meta < source.indexOf('t("dependsOn")'), 'dependency rendering keeps its order');
+  assert.ok(meta < source.indexOf('t("taskDependencies")'), 'dependency rendering keeps its order');
   assert.ok(source.indexOf('t("dependsOn")') < source.indexOf('requestControls("task", task.id)'),
     'dispatch controls still render last');
 });

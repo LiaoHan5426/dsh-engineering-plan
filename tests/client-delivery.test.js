@@ -99,7 +99,7 @@ test('actual handlers and render paths wire confirmation and request guards', ()
   assert.equal(inserted, 1);
   assert.ok(source.includes('setDelivery(bindDelivery(cached.delivery, cached.change))'));
   assert.ok(source.includes('next, submitted === "replan"'));
-  assert.ok(source.includes('!eligible || freshGateBlocked || !confirmation.confirmed || !delivery.note.trim()'));
+  assert.ok(source.includes('busy || !eligible || freshGateBlocked'));
   const controls = source.slice(source.indexOf('          function requestControls('), source.indexOf('          function button('));
   assert.equal(controls.split('deliveryBlocked || unsettled').length - 1, 2);
   assert.ok(controls.includes('if (deliveryRequestAllowed(kind, change)) copy('));

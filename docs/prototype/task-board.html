@@ -1,0 +1,2933 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>任务看板 · Engineering Planner</title>
+<style>
+@layer od-layout {
+  [hidden]:not([hidden="until-found" i]) { display: none !important; }
+  dialog:not([open]) { display: none !important; }
+
+  :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-field,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+
+  .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+  .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+  .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+  .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+  .od-fill    { flex: 1 1 0; min-width: 0; }
+  .od-fixed   { flex: none; }
+  .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+
+  .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+  :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+  .od-tile { display: grid; grid-template-rows: auto 1fr; }
+  :where(.od-tile) > :where(*) { display: block; }
+
+  .od-media { display: block; width: 100%; height: auto; aspect-ratio: var(--od-ratio, auto); }
+  .od-media-cover { object-fit: cover; }
+
+  .od-icon { display: inline-block; inline-size: var(--od-icon-size, 1em); block-size: var(--od-icon-size, 1em); flex: none; }
+
+  .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .od-clamp-2, .od-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .od-clamp-2 { -webkit-line-clamp: 2; }
+  .od-clamp-3 { -webkit-line-clamp: 3; }
+  .od-lines-2 { min-height: calc(2 * 1.4em); }
+  .od-nowrap  { white-space: nowrap; }
+  .od-keep    { word-break: keep-all; overflow-wrap: anywhere; }
+
+  .od-screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+  .od-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+
+  .od-rail { display: flex; gap: var(--od-gap, 8px); overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+             padding-inline: var(--od-rail-pad, 16px); scroll-padding-inline: var(--od-rail-pad, 16px); }
+  .od-rail::-webkit-scrollbar { display: none; }
+  :where(.od-rail) > :where(*) { flex: none; scroll-snap-align: start; }
+  :where(.od-rail) > :where(:last-child) { margin-inline-end: var(--od-rail-pad, 16px); }
+
+  .od-spacer { flex: none; visibility: hidden; pointer-events: none; }
+  .od-touch  { min-width: 44px; min-height: 44px; }
+}
+:root [hidden]:where(:not([hidden="until-found" i])) { display: none; }
+
+:root {
+  color-scheme: dark;
+  --bg: #131316;
+  --surface: #202127;
+  --surface-soft: #1b1c21;
+  --surface-sunken: #18191e;
+  --surface-deep: #111216;
+  --surface-hover: #25262d;
+  --border: #31323a;
+  --border-soft: #2b2c33;
+  --border-strong: #41434d;
+  --text: #ececf1;
+  --text-soft: #c7c7d0;
+  --muted: #9a9aa4;
+  --muted-dim: #74757f;
+  --accent: #5b84f5;
+  --accent-bright: #7b9cff;
+  --accent-ink: #0b1020;
+  --success: #57c98a;
+  --warning: #e0a33a;
+  --danger: #ef6a6a;
+  --radius: 10px;
+  --radius-sm: 7px;
+  --motion-fast: 150ms;
+  --motion: 200ms;
+  --motion-slow: 280ms;
+  --ease-out: cubic-bezier(.2,.8,.2,1);
+  --font-display: "Bahnschrift", "DIN Alternate", "Segoe UI Variable Display", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  --font-body: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); scrollbar-gutter: stable; }
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body.drawer-open { overflow: hidden; }
+::selection { background: rgba(91,132,245,.34); color: #fff; }
+
+* { scrollbar-width: thin; scrollbar-color: #3b3d47 transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3b3d47; border: 3px solid transparent; background-clip: content-box; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #4b4d59; border: 3px solid transparent; background-clip: content-box; }
+
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+input, select, textarea { font: inherit; }
+h1, h2, h3, h4, p { margin: 0; }
+a { color: inherit; }
+svg { display: block; }
+.svg-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
+}
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+:where(button, input, select, [role="button"]):focus-visible {
+  outline: 2px solid #96b0ff;
+  outline-offset: 2px;
+}
+
+/* App chrome */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: #151519;
+  border-bottom: 1px solid var(--border);
+}
+.appbar-inner {
+  max-width: 1600px;
+  min-height: 56px;
+  margin: 0 auto;
+  padding: 0 max(24px, env(safe-area-inset-left)) 0 max(24px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.logo-mark {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border: 1px solid #465a95;
+  border-radius: 7px;
+  background: #1b2440;
+  color: #a9bcff;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: -.04em;
+}
+.brand-name { font-size: 13px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+.appbar-divider { width: 1px; height: 18px; background: var(--border); }
+.appbar-crumb { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; min-width: 0; }
+.appbar-crumb .sep { color: #5b5c66; }
+.appbar-crumb [aria-current="page"] { color: var(--text-soft); }
+.appbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.sync { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px rgba(87,201,138,.08); }
+.avatar {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Page shell */
+.app-shell {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 24px max(24px, env(safe-area-inset-left)) max(48px, env(safe-area-inset-bottom));
+}
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 18px;
+}
+.eyebrow {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: .13em;
+}
+.page-head h1 {
+  margin-top: 5px;
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -.025em;
+}
+.page-sub { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.change-picker-wrap { flex: none; min-width: 230px; }
+.control-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.change-picker { position: relative; }
+.change-switch {
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+}
+.change-switch:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.change-switch-id {
+  color: #a9bdff;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.change-switch-action { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+.change-switch .od-icon { color: var(--muted); transition: transform var(--motion-fast); }
+.change-switch[aria-expanded="true"] .od-icon { transform: rotate(180deg); }
+
+.change-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: min(356px, calc(100vw - 32px));
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: #1c1d23;
+  box-shadow: 0 18px 48px rgba(0,0,0,.38);
+}
+.change-menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px 7px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.change-menu-head .mono { letter-spacing: 0; text-transform: none; color: var(--muted-dim); }
+.change-option {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  text-align: left;
+}
+.change-option:hover { background: var(--surface-hover); }
+.change-option[aria-checked="true"] { background: #22283a; border-color: #36446b; }
+.change-option-main { min-width: 0; display: grid; gap: 2px; }
+.change-option-id { color: #a9bdff; font-family: var(--font-mono); font-size: 10.5px; }
+.change-option-title { color: var(--text); font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.change-option-meta { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.change-option-check { color: var(--accent-bright); display: grid; place-items: center; }
+.change-menu-foot { margin-top: 4px; padding: 8px 9px 4px; border-top: 1px solid var(--border-soft); color: var(--muted-dim); font-size: 10px; }
+
+/* Overview */
+.overview {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.15fr) minmax(330px, .9fr) minmax(250px, .72fr);
+  align-items: stretch;
+  padding: 18px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.overview-copy { display: flex; flex-direction: column; justify-content: center; padding-right: 26px; min-width: 0; }
+.overview-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.overview-context .context-sep { color: #5a5b65; margin: 0 1px; }
+.overview-branch { color: #a7a8b2; font-size: 10px; font-weight: 500; letter-spacing: 0; }
+.overview-title {
+  margin-top: 8px;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -.018em;
+}
+.overview-desc {
+  max-width: 58ch;
+  margin-top: 5px;
+  color: #a9aab3;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  padding-left: 24px;
+  border-left: 1px solid var(--border-soft);
+}
+.metric { min-width: 0; padding-left: 16px; }
+.metric:first-child { padding-left: 0; }
+.metric + .metric { border-left: 1px solid var(--border-soft); }
+.metric-value {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.metric-blocked .metric-value { color: var(--danger); }
+.metric-ready .metric-value { color: var(--accent-bright); }
+.metric-label { display: block; color: var(--muted); font-size: 10.5px; line-height: 1.3; white-space: nowrap; }
+.overview-progress {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--border-soft);
+}
+.progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10.5px; font-weight: 600; }
+.progress-percent {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.progress-track {
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #2e2f38;
+}
+.progress-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform: scaleX(var(--progress, 0));
+  transform-origin: left center;
+  transition: transform 320ms var(--ease-out), background var(--motion);
+}
+.progress-fill.is-complete { background: var(--success); }
+.progress-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--muted-dim); font-size: 10px; }
+.progress-foot span:first-child { color: var(--muted); }
+
+/* Attention bar */
+.review-banner {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(224,163,58,.34);
+  border-radius: var(--radius);
+  background: rgba(224,163,58,.065);
+}
+.review-icon {
+  width: 30px; height: 30px;
+  flex: none;
+  display: grid; place-items: center;
+  border: 1px solid rgba(224,163,58,.3);
+  border-radius: 7px;
+  background: rgba(224,163,58,.08);
+  color: var(--warning);
+}
+.review-copy { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.review-copy strong { color: #f2d8a6; font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.review-copy span { color: #bfb5a2; font-size: 12px; }
+.review-copy b { color: var(--text); font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; }
+.btn-review {
+  margin-left: auto;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(224,163,58,.42);
+  border-radius: 6px;
+  background: transparent;
+  color: #f1d6a1;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+}
+.btn-review:hover { background: rgba(224,163,58,.11); border-color: rgba(224,163,58,.62); }
+
+/* Toolbar */
+.workspace { margin-top: 18px; }
+.workspace-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.filters { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; flex: 1; }
+.search-control {
+  flex: 0 1 340px;
+  min-width: 250px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background var(--motion-fast);
+}
+.search-control:hover { border-color: var(--border-strong); }
+.search-control:focus-within { border-color: #657dc2; box-shadow: 0 0 0 2px rgba(91,132,245,.13); background: #191a20; }
+.search-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: text;
+}
+.search-label .od-icon { color: #8e909a; }
+.search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.search-input::placeholder { color: #74757f; opacity: 1; }
+.search-input::-webkit-search-cancel-button { display: none; }
+.clear-search {
+  width: 24px; height: 24px;
+  flex: none;
+  display: grid; place-items: center;
+  border-radius: 5px;
+  color: var(--muted);
+}
+.clear-search:hover { background: #2b2c34; color: var(--text); }
+.filter-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.filter-chip {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: #b7b8c1;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+}
+.filter-chip:hover { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+.filter-chip[aria-pressed="true"] { background: #22283a; border-color: #4560a0; color: #dce6ff; }
+.chip-count {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #292a32;
+  color: #b8b9c2;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+}
+.filter-chip[aria-pressed="true"] .chip-count { background: #33436f; color: #dce6ff; }
+.view-switch {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+}
+.view-btn {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.view-btn:hover { color: var(--text); background: #23242b; }
+.view-btn[aria-pressed="true"] { color: var(--text); background: #2b2c34; box-shadow: inset 0 0 0 1px #3a3b45; }
+.view-btn .od-icon { color: currentColor; }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+}
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { background: #7398ff; border-color: #7398ff; }
+.btn-secondary { background: #272830; border-color: #3b3c46; color: #dedee5; }
+.btn-secondary:hover { background: #2e2f38; border-color: #4a4c57; }
+.btn-ghost { background: transparent; border-color: transparent; color: #bdbec8; }
+.btn-ghost:hover { background: #2a2b33; color: var(--text); }
+.btn-sm { height: 29px; padding: 0 9px; font-size: 11px; }
+.btn-block { width: 100%; }
+.btn:disabled { opacity: .56; cursor: not-allowed; }
+.icon-btn {
+  width: 32px; height: 32px;
+  flex: none;
+  display: grid; place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  transition: color var(--motion-fast), background var(--motion-fast), border-color var(--motion-fast);
+}
+.icon-btn:hover { color: var(--text); background: #26272e; border-color: var(--border); }
+
+/* Status */
+.status-dot {
+  width: 6px; height: 6px;
+  flex: none;
+  display: inline-block;
+  border-radius: 50%;
+  background: #8c8d97;
+}
+.status-dot.pending { background: #8c8d97; }
+.status-dot.running { background: var(--accent); box-shadow: 0 0 0 3px rgba(91,132,245,.11); }
+.status-dot.review { background: var(--warning); box-shadow: 0 0 0 3px rgba(224,163,58,.09); }
+.status-dot.done { background: var(--success); }
+.status-dot.failed { background: var(--danger); }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 21px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.badge .status-dot { width: 5px; height: 5px; box-shadow: none; }
+.badge-pending { color: #c2c3cc; background: #2a2b32; border-color: #3a3b45; }
+.badge-running { color: #bdcbff; background: rgba(91,132,245,.12); border-color: rgba(91,132,245,.35); }
+.badge-review { color: #f1d29a; background: rgba(224,163,58,.105); border-color: rgba(224,163,58,.37); }
+.badge-done { color: #a7eac6; background: rgba(87,201,138,.095); border-color: rgba(87,201,138,.31); }
+.badge-failed { color: #ffb2b2; background: rgba(239,106,106,.095); border-color: rgba(239,106,106,.34); }
+.module-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid #383a43;
+  border-radius: 4px;
+  background: #272830;
+  color: #b3b4bd;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Board */
+.board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+.board-column {
+  min-width: 0;
+  min-height: 244px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: #18191e;
+}
+.column-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 11px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.column-head h3 { color: #d3d3db; font-size: 11.5px; font-weight: 600; line-height: 1.3; letter-spacing: .005em; }
+.column-count {
+  margin-left: auto;
+  min-width: 19px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #26272e;
+  color: #b8b9c2;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+}
+.column-hint {
+  margin-left: 2px;
+  color: var(--warning);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+.column-cards { display: flex; flex: 1; flex-direction: column; gap: 8px; padding: 8px; }
+.column-empty {
+  display: grid;
+  place-items: center;
+  min-height: 88px;
+  padding: 16px 10px;
+  border: 1px dashed #32343d;
+  border-radius: 7px;
+  color: #6d6e78;
+  font-size: 10.5px;
+  text-align: center;
+}
+.task-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  transition: border-color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
+}
+.task-card-review { border-color: rgba(224,163,58,.31); }
+.task-card-failed { border-color: rgba(239,106,106,.28); }
+.card-main { display: block; padding: 11px 11px 9px; cursor: pointer; border-radius: 8px; }
+.card-main:focus-visible { outline-offset: -3px; }
+.card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.task-id { color: #a0a1ab; font-family: var(--font-mono); font-size: 9.5px; font-weight: 500; letter-spacing: .01em; white-space: nowrap; }
+.card-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 8px 0 7px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.48;
+  letter-spacing: -.006em;
+  overflow-wrap: anywhere;
+}
+.card-tags { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.card-accept-label { flex: none; color: var(--muted-dim); font-size: 9px; white-space: nowrap; }
+.card-accept-label strong { color: #bdbec7; font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; }
+.mini-track { height: 3px; overflow: hidden; border-radius: 999px; background: #30313a; }
+.card-tags + .mini-track { margin-top: 7px; }
+.mini-track i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform: scaleX(var(--progress, 0));
+  transform-origin: left center;
+  transition: transform 300ms var(--ease-out);
+}
+.mini-track i.is-complete { background: var(--success); }
+.mini-track i.is-failed { background: var(--danger); }
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #2c2d35;
+  color: #7d7e88;
+  font-size: 9px;
+}
+.card-executor { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: #90919b; }
+.card-executor span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-updated { flex: none; font-family: var(--font-mono); font-size: 9px; }
+.card-cta { padding: 0 11px 11px; }
+.card-cta .btn { height: 31px; font-size: 11px; }
+@media (hover: hover) {
+  .task-card:hover { background: #23242b; border-color: #474954; transform: translateY(-1px); }
+  .task-card-review:hover { border-color: rgba(224,163,58,.55); }
+  .task-card-failed:hover { border-color: rgba(239,106,106,.48); }
+}
+
+/* List */
+.table-shell {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.task-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.col-id { width: 134px; }
+.col-status { width: 106px; }
+.col-module { width: 92px; }
+.col-accept { width: 126px; }
+.col-deps { width: 158px; }
+.col-actions { width: 172px; }
+.task-table th {
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: #1c1d22;
+  color: var(--muted-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .065em;
+  text-align: left;
+  white-space: nowrap;
+}
+.task-table td {
+  padding: 11px 12px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  vertical-align: middle;
+}
+.task-table tbody tr { transition: background var(--motion-fast); }
+.task-table tbody tr:first-child td { border-top: 0; }
+.task-table tbody tr:hover { background: #24252c; }
+.id-link {
+  color: #aeb8d8;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+.id-link:hover { color: #c7d4ff; text-decoration: underline; text-underline-offset: 3px; }
+.row-title {
+  display: block;
+  max-width: 100%;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.row-title:hover { text-decoration: underline; text-decoration-color: #5d6f9f; text-underline-offset: 3px; }
+.row-sub { display: block; margin-top: 2px; color: #7d7e88; font-family: var(--font-mono); font-size: 9px; }
+.table-progress { display: flex; align-items: center; gap: 7px; }
+.table-progress-text { flex: none; color: #bdbec7; font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; }
+.table-track { width: 46px; flex: none; }
+.deps-line { display: block; color: #b3b4bd; font-size: 10.5px; }
+.update-line { display: block; margin-top: 2px; color: #7d7e88; font-family: var(--font-mono); font-size: 9px; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.task-table tbody tr[data-row-id] { cursor: pointer; }
+
+/* Empty and no-results */
+.state-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 310px;
+  padding: 44px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: center;
+}
+.state-icon {
+  width: 58px; height: 58px;
+  display: grid; place-items: center;
+  margin-bottom: 15px;
+  border: 1px solid #3a3b45;
+  border-radius: 10px;
+  background: #191a20;
+  color: #8f909a;
+}
+.state-icon .od-icon { color: #9b9ca6; }
+.state-icon-small { width: 50px; height: 50px; margin-bottom: 13px; }
+.state-kicker {
+  margin-bottom: 6px;
+  color: var(--muted-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .12em;
+}
+.state-panel h2 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -.015em;
+}
+.state-panel > p {
+  max-width: 540px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.state-actions { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.state-hint {
+  max-width: 560px;
+  margin-top: 18px !important;
+  padding-top: 13px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--muted-dim) !important;
+  font-size: 10.5px !important;
+}
+
+/* Drawer */
+.task-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  overflow: hidden;
+}
+.task-dialog::backdrop { background: rgba(7,8,10,.64); }
+.drawer-panel {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: min(520px, 100%);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-left: 1px solid var(--border);
+  background: #18191e;
+  box-shadow: -26px 0 64px rgba(0,0,0,.28);
+  animation: drawer-in var(--motion-slow) var(--ease-out);
+}
+@keyframes drawer-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.drawer-head {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px 0 24px;
+  border-bottom: 1px solid var(--border-soft);
+  background: #18191e;
+}
+.drawer-heading { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.drawer-kicker { color: var(--muted); font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: .12em; }
+.drawer-rule { width: 22px; height: 1px; background: #3b3c46; }
+.drawer-body { min-height: 0; overflow-y: auto; padding: 22px 24px 28px; overscroll-behavior: contain; }
+.drawer-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.drawer-id { color: #aeb8d8; font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; }
+.drawer-title {
+  margin: 9px 0 8px;
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -.018em;
+  overflow-wrap: anywhere;
+}
+.drawer-subline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 10.5px; }
+.drawer-executor { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 9.5px; }
+.detail-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #1b1c21;
+}
+.fact { min-width: 0; padding: 10px 12px; }
+.fact:nth-child(odd) { border-right: 1px solid var(--border-soft); }
+.fact:nth-child(n+3) { border-top: 1px solid var(--border-soft); }
+.fact-label { display: block; margin-bottom: 4px; color: var(--muted-dim); font-family: var(--font-mono); font-size: 8.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.fact-value { display: block; min-width: 0; color: #d7d7df; font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.fact-value.mono { font-size: 10.5px; }
+.fact-empty { color: var(--muted-dim); }
+.dep-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 1px; }
+.dep-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 1px solid #363741;
+  border-radius: 4px;
+  background: #25262d;
+  color: #b9bac3;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 1.4;
+}
+.dep-pill .status-dot { width: 5px; height: 5px; box-shadow: none; }
+.dep-pill .dep-status { color: #858691; font-family: var(--font-body); font-size: 8.5px; }
+
+.notice {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 9px;
+  margin-top: 18px;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+.notice .od-icon { margin-top: 1px; }
+.notice h3 { margin-bottom: 3px; font-size: 11.5px; font-weight: 600; line-height: 1.45; }
+.notice p { color: #b9b5ad; font-size: 11.5px; line-height: 1.58; }
+.notice p + p { margin-top: 5px; }
+.notice b { color: #ded9cf; font-weight: 600; }
+.notice-review { border-color: rgba(224,163,58,.31); background: rgba(224,163,58,.065); }
+.notice-review .od-icon, .notice-review h3 { color: #f1d29a; }
+.notice-failure { border-color: rgba(239,106,106,.31); background: rgba(239,106,106,.065); }
+.notice-failure .od-icon, .notice-failure h3 { color: #ffb0b0; }
+
+.detail-section { margin-top: 24px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.section-head h3 { color: #dedee5; font-size: 12.5px; font-weight: 600; letter-spacing: .005em; }
+.section-meta { color: var(--muted-dim); font-family: var(--font-mono); font-size: 9px; font-variant-numeric: tabular-nums; }
+.acceptance-list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #1b1c21;
+  list-style: none;
+}
+.acceptance-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 9px;
+  padding: 9px 11px;
+  border-top: 1px solid var(--border-soft);
+}
+.acceptance-item:first-child { border-top: 0; }
+.accept-icon { width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid #3a3b45; border-radius: 50%; color: var(--muted); }
+.acceptance-item.is-passed .accept-icon { border-color: rgba(87,201,138,.35); background: rgba(87,201,138,.08); color: var(--success); }
+.acceptance-item.is-failed .accept-icon { border-color: rgba(239,106,106,.36); background: rgba(239,106,106,.08); color: var(--danger); }
+.acceptance-item.is-pending .accept-icon { color: #8a8b95; }
+.accept-copy { min-width: 0; padding-top: 1px; }
+.accept-label { display: block; color: #d7d7df; font-size: 11.5px; line-height: 1.48; }
+.accept-evidence {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 0 5px;
+  border: 1px solid #34353e;
+  border-radius: 3px;
+  background: #25262d;
+  color: #858691;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 1.6;
+}
+.accept-state { padding-top: 1px; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.is-passed .accept-state { color: var(--success); }
+.is-failed .accept-state { color: var(--danger); }
+.is-pending .accept-state { color: #888993; }
+
+.timeline { margin: 0; padding: 0; list-style: none; }
+.timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 17px;
+}
+.timeline-item:last-child { padding-bottom: 0; }
+.timeline-item::before {
+  content: "";
+  position: absolute;
+  left: 51px;
+  top: 13px;
+  bottom: -1px;
+  width: 1px;
+  background: #31323b;
+}
+.timeline-item:last-child::before { display: none; }
+.timeline-time { color: #7c7d87; font-family: var(--font-mono); font-size: 8.5px; line-height: 1.6; text-align: right; padding-top: 2px; }
+.timeline-copy { position: relative; min-width: 0; padding-left: 14px; }
+.timeline-dot { position: absolute; left: -4px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: #7e7f89; box-shadow: 0 0 0 3px #18191e; }
+.timeline-dot.success { background: var(--success); }
+.timeline-dot.failure { background: var(--danger); }
+.timeline-dot.warning { background: var(--warning); }
+.timeline-dot.neutral { background: #777883; }
+.timeline-title { color: #d7d7df; font-size: 11.5px; font-weight: 600; line-height: 1.48; }
+.timeline-detail { margin-top: 2px; color: #9b9ca6; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.timeline-evidence {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 0 5px;
+  border: 1px solid #34353e;
+  border-radius: 3px;
+  background: #25262d;
+  color: #858691;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 1.6;
+}
+.section-empty { padding: 11px 12px; border: 1px dashed #34353e; border-radius: 8px; color: var(--muted-dim); font-size: 11px; }
+
+.command-box {
+  position: relative;
+  padding: 11px 44px 11px 12px;
+  border: 1px solid #30313a;
+  border-radius: 8px;
+  background: var(--surface-deep);
+}
+.command-box pre { margin: 0; color: #c7c9d3; font-family: var(--font-mono); font-size: 10px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.copy-btn {
+  position: absolute;
+  top: 8px; right: 8px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid #3a3b45;
+  border-radius: 4px;
+  background: #202127;
+  color: #a6a7b1;
+  font-size: 9px;
+  font-weight: 600;
+}
+.copy-btn:hover { background: #2a2b33; color: var(--text); }
+.copy-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.drawer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 24px;
+  border-top: 1px solid var(--border);
+  background: #17181c;
+}
+.footer-note { display: inline-flex; align-items: center; gap: 7px; min-width: 0; color: #9b9ca6; font-size: 10.5px; line-height: 1.4; }
+.footer-actions { display: flex; align-items: center; gap: 7px; flex: none; }
+.footer-actions .btn { height: 34px; }
+
+/* Create dialog */
+.form-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(480px, calc(100vw - 32px));
+  height: max-content;
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: #1b1c21;
+  color: var(--text);
+  box-shadow: 0 24px 72px rgba(0,0,0,.52);
+}
+.form-dialog::backdrop { background: rgba(7,8,10,.68); }
+.form-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 15px 20px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.form-kicker { display: block; margin-bottom: 4px; color: #8d909a; font-family: var(--font-mono); font-size: 8.5px; font-weight: 600; letter-spacing: .13em; }
+.form-head h2 { font-family: var(--font-display); font-size: 20px; font-weight: 600; line-height: 1.25; letter-spacing: -.015em; }
+.form-body { display: grid; gap: 15px; padding: 18px 20px 20px; }
+.field { min-width: 0; }
+.field label { display: block; margin-bottom: 6px; color: #d3d3dc; font-size: 11px; font-weight: 600; }
+.required { color: var(--danger); }
+.text-input, .field select {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #383a44;
+  border-radius: 7px;
+  outline: 0;
+  background: #15161b;
+  color: var(--text);
+  font-size: 12.5px;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.text-input::placeholder { color: #70717b; }
+.text-input:hover, .field select:hover { border-color: #474955; }
+.text-input:focus, .field select:focus { border-color: #637dc5; box-shadow: 0 0 0 2px rgba(91,132,245,.13); }
+.text-input[aria-invalid="true"] { border-color: var(--danger); }
+.field-help { margin-top: 5px; color: #7e7f89; font-size: 9.5px; line-height: 1.5; }
+.field-error { margin-top: 5px; color: #ff9f9f; font-size: 10px; line-height: 1.5; }
+.form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 13px 20px;
+  border-top: 1px solid var(--border-soft);
+  background: #18191e;
+}
+.form-foot .btn { height: 34px; }
+
+/* Toasts */
+.toast-region {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 11px;
+  border: 1px solid #42444f;
+  border-radius: 7px;
+  background: #272832;
+  color: #e3e3e9;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: 0 10px 32px rgba(0,0,0,.3);
+  pointer-events: auto;
+  animation: toast-in var(--motion) var(--ease-out);
+}
+.toast .od-icon { flex: none; }
+.toast-success .od-icon { color: var(--success); }
+.toast-failure .od-icon { color: var(--danger); }
+.toast.neutral .od-icon { color: var(--accent-bright); }
+.toast.is-leaving { animation: toast-out 150ms ease-in forwards; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(4px); } }
+.drawer-toasts {
+  left: auto;
+  right: 22px;
+  bottom: 76px;
+  align-items: flex-end;
+  transform: none;
+  z-index: 10;
+}
+
+/* Responsive */
+@media (max-width: 1240px) {
+  .board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1120px) {
+  .overview { grid-template-columns: minmax(280px, 1.1fr) minmax(310px, .9fr); }
+  .overview-progress {
+    grid-column: 1 / -1;
+    margin-top: 16px;
+    padding: 14px 0 0;
+    border-top: 1px solid var(--border-soft);
+    border-left: 0;
+  }
+}
+@media (max-width: 1080px) {
+  .app-shell { padding-top: 20px; }
+  .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspace-toolbar { align-items: flex-start; }
+  .filters { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .search-control { width: 100%; max-width: none; min-width: 0; flex: none; }
+  .view-switch { margin-top: 2px; }
+  .table-shell { overflow: visible; border: 0; border-radius: 0; background: transparent; }
+  .task-table { display: block; table-layout: auto; }
+  .task-table colgroup, .task-table thead {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0,0,0,0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+  .task-table tbody { display: grid; gap: 8px; }
+  .task-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 12px;
+    padding: 13px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .task-table td { display: block; min-width: 0; padding: 0; border: 0; font-size: 11.5px; }
+  .task-table tbody tr:first-child td { border-top: 0; }
+  .cell-id { grid-column: 1; grid-row: 1; }
+  .cell-status { grid-column: 2; grid-row: 1; justify-self: end; }
+  .cell-task { grid-column: 1 / -1; grid-row: 2; }
+  .cell-module { grid-column: 1; grid-row: 3; }
+  .cell-accept { grid-column: 2; grid-row: 3; justify-self: end; }
+  .cell-deps { grid-column: 1 / -1; grid-row: 4; padding-top: 7px; border-top: 1px solid var(--border-soft); }
+  .cell-actions { grid-column: 1 / -1; grid-row: 5; display: flex; justify-content: flex-end; gap: 6px; padding-top: 2px; }
+  .row-title { font-size: 13.5px; }
+  .row-actions { justify-content: flex-end; }
+  .row-sub { font-size: 9px; }
+  .table-track { width: 60px; }
+}
+@media (max-width: 760px) {
+  .appbar-inner { padding-inline: 16px; }
+  .appbar-crumb, .appbar-divider { display: none; }
+  .app-shell { padding-inline: 16px; }
+  .page-head { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .change-picker-wrap { width: 100%; min-width: 0; }
+  .overview { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .overview-copy { padding-right: 0; }
+  .overview-metrics {
+    margin-top: 15px;
+    padding: 14px 0 0;
+    border-top: 1px solid var(--border-soft);
+    border-left: 0;
+  }
+  .overview-progress { margin-top: 14px; padding-top: 13px; }
+  .review-banner { align-items: flex-start; flex-wrap: wrap; }
+  .review-copy { flex: 1 1 calc(100% - 44px); }
+  .btn-review { margin-left: 41px; }
+  .page-head h1 { font-size: 26px; }
+  .workspace-toolbar { flex-direction: column; }
+  .filters { width: 100%; }
+  .view-switch { align-self: flex-end; }
+  .drawer-toasts { right: 16px; bottom: 72px; }
+}
+@media (max-width: 600px) {
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .board-column { min-height: 0; }
+  .column-cards { min-height: 0; }
+  .state-panel { min-height: 280px; padding: 36px 18px; }
+  .metric-value { font-size: 23px; }
+  .task-table tr { padding: 12px; }
+  .drawer-body { padding: 18px 18px 24px; }
+  .drawer-head { padding-left: 18px; }
+  .drawer-footer { padding: 12px 18px; flex-wrap: wrap; }
+  .footer-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  .footer-actions .btn:only-child { grid-column: 1 / -1; }
+  .detail-facts { grid-template-columns: minmax(0, 1fr); }
+  .fact:nth-child(odd) { border-right: 0; }
+  .fact:nth-child(n+2) { border-top: 1px solid var(--border-soft); }
+  .form-row { grid-template-columns: minmax(0, 1fr); }
+  .toast-region { width: calc(100vw - 24px); }
+  .toast { width: max-content; }
+}
+@media (max-width: 520px) {
+  .brand-name { display: none; }
+  .sync { font-size: 10.5px; }
+  .overview-title { font-size: 19px; }
+  .progress-head { align-items: center; }
+  .filter-chips { gap: 5px; }
+  .filter-chip { height: 31px; padding: 0 8px; }
+  .app-shell { padding-bottom: 36px; }
+  .drawer-title { font-size: 21px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- 中文排版修正：按钮与紧凑标签锁定单行，避免逐字断行 --- */
+.view-btn,
+.btn-review,
+.filter-chip,
+.search-label,
+.change-switch-id,
+.change-switch-action {
+  flex: none;
+  white-space: nowrap;
+}
+.review-copy { flex: 1 1 auto; }
+.review-copy span { min-width: 0; }
+.review-banner { flex-wrap: wrap; row-gap: 8px; }
+.notice > div { min-width: 0; }
+</style>
+</head>
+<body>
+<svg class="svg-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.8"/><path d="m16 16 4.3 4.3"/></g></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></g></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></g></symbol>
+  <symbol id="i-board" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3.5" y="4" width="7" height="7" rx="1.4"/><rect x="13.5" y="4" width="7" height="7" rx="1.4"/><rect x="3.5" y="14" width="7" height="6" rx="1.4"/><rect x="13.5" y="14" width="7" height="6" rx="1.4"/></g></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" stroke-width="2.2"/></g></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.2 4.2L19 7"/></g></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></g></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 2.9 19.9h18.2L12 3.2Z"/><path d="M12 9.1v4.4M12 17.2h.01" stroke-width="1.8"/></g></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13.5M13 6.5l5.5 5.5-5.5 5.5"/></g></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16v13H4z"/><path d="M4 13h4l1.4 2.2h5.2L16 13h4"/></g></symbol>
+  <symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.4" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="m7.5 9 3 3-3 3M13 15h4"/></g></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="5.5" r="2"/><circle cx="6.5" cy="18.5" r="2"/><circle cx="17.5" cy="8.5" r="2"/><path d="M6.5 7.5v9M8.5 7.5h4a5 5 0 0 1 5 5v-2"/></g></symbol>
+</svg>
+
+<header class="appbar">
+  <div class="appbar-inner">
+    <div class="brand">
+      <span class="logo-mark" aria-hidden="true">DSH</span>
+      <span class="brand-name">Engineering Planner</span>
+    </div>
+    <span class="appbar-divider" aria-hidden="true"></span>
+    <nav class="appbar-crumb" aria-label="面包屑">
+      <span>交付</span>
+      <span class="sep" aria-hidden="true">/</span>
+      <span aria-current="page">任务看板</span>
+    </nav>
+    <div class="appbar-right">
+      <span class="sync"><span class="sync-dot" aria-hidden="true"></span>本地数据</span>
+      <span class="avatar" role="img" aria-label="当前用户 LH">LH</span>
+    </div>
+  </div>
+</header>
+
+<main class="app-shell">
+  <section class="page-head" aria-labelledby="pageTitle">
+    <div>
+      <p class="eyebrow">EXECUTION CONTROL</p>
+      <h1 id="pageTitle">任务看板</h1>
+      <p class="page-sub">从任务拆解到人工验收，集中追踪当前变更的交付状态。</p>
+    </div>
+    <div class="change-picker-wrap">
+      <span class="control-label" id="changeLabel">当前变更</span>
+      <div class="change-picker">
+        <button
+          id="changeButton"
+          class="change-switch"
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          aria-controls="changeMenu"
+          aria-label="切换变更，当前 ENG-142"
+        >
+          <span class="change-switch-id" id="changeCurrentId">ENG-142</span>
+          <span class="change-switch-action">切换</span>
+          <svg class="od-icon" style="--od-icon-size:15px" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+        </button>
+        <div id="changeMenu" class="change-menu" role="menu" aria-label="切换变更" hidden>
+          <div class="change-menu-head"><span>选择变更</span><span class="mono">2 个</span></div>
+          <div id="changeMenuList"></div>
+          <div class="change-menu-foot">任务、筛选与进度随变更同步切换。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="overview" aria-labelledby="overviewTitle">
+    <div class="overview-copy">
+      <div class="overview-context">
+        <span id="overviewDot" class="status-dot running" aria-hidden="true"></span>
+        <span id="overviewSignal">变更进行中</span>
+        <span class="context-sep" aria-hidden="true">/</span>
+        <span class="mono overview-branch" id="overviewBranch">feat/scheduler-retry</span>
+      </div>
+      <h2 class="overview-title" id="overviewTitle">调度器重试策略重构</h2>
+      <p class="overview-desc" id="overviewDesc">统一执行器的超时与重试语义，减少瞬时故障造成的整批失败。</p>
+    </div>
+    <div class="overview-metrics" aria-label="任务概览">
+      <div class="metric">
+        <span class="metric-value" id="statTotal">9</span>
+        <span class="metric-label">任务总数</span>
+      </div>
+      <div class="metric metric-blocked">
+        <span class="metric-value" id="statBlocked">1</span>
+        <span class="metric-label">阻塞数</span>
+      </div>
+      <div class="metric metric-ready">
+        <span class="metric-value" id="statReady">1</span>
+        <span class="metric-label">当前可开始数</span>
+      </div>
+    </div>
+    <div class="overview-progress">
+      <div class="progress-head">
+        <span>完成进度</span>
+        <span class="progress-percent" id="progressPercent">33%</span>
+      </div>
+      <div
+        class="progress-track"
+        id="progressTrack"
+        role="progressbar"
+        aria-label="任务完成进度"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="33"
+      >
+        <span class="progress-fill" id="progressFill" style="--progress:.333"></span>
+      </div>
+      <div class="progress-foot">
+        <span id="progressFraction">3 / 9 已完成</span>
+        <span id="progressRemaining">剩余 6</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="review-banner" id="reviewBanner" aria-labelledby="reviewBannerTitle" aria-live="polite" hidden>
+    <span class="review-icon" aria-hidden="true">
+      <svg class="od-icon" style="--od-icon-size:15px"><use href="#i-alert"></use></svg>
+    </span>
+    <div class="review-copy">
+      <strong id="reviewBannerTitle">需要你处理</strong>
+      <span><b id="reviewBannerCount">1</b> 个任务已完成自动验收，等待人工确认。</span>
+    </div>
+    <button class="btn-review" id="reviewJump" type="button">
+      查看待审核
+      <svg class="od-icon" style="--od-icon-size:13px" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+    </button>
+  </section>
+
+  <section class="workspace" aria-labelledby="workspaceTitle">
+    <h2 class="sr-only" id="workspaceTitle">任务清单</h2>
+    <div class="workspace-toolbar">
+      <div class="filters">
+        <div class="search-control">
+          <label class="search-label" for="taskSearch">
+            <svg class="od-icon" style="--od-icon-size:14px" aria-hidden="true"><use href="#i-search"></use></svg>
+            <span>搜索</span>
+          </label>
+          <input
+            class="search-input"
+            id="taskSearch"
+            type="search"
+            placeholder="标题 / 编号 / 模块"
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <button class="clear-search" id="clearSearch" type="button" aria-label="清除搜索" hidden>
+            <svg class="od-icon" style="--od-icon-size:14px" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <div class="filter-chips" id="filterChips" role="group" aria-label="按状态筛选"></div>
+      </div>
+      <div class="view-switch" id="viewSwitch" role="group" aria-label="视图切换">
+        <button class="view-btn" type="button" data-view="board" aria-pressed="true">
+          <svg class="od-icon" style="--od-icon-size:14px" aria-hidden="true"><use href="#i-board"></use></svg>
+          看板
+        </button>
+        <button class="view-btn" type="button" data-view="list" aria-pressed="false">
+          <svg class="od-icon" style="--od-icon-size:14px" aria-hidden="true"><use href="#i-list"></use></svg>
+          列表
+        </button>
+      </div>
+    </div>
+
+    <div class="board" id="boardView" aria-label="任务看板视图"></div>
+
+    <div class="table-shell" id="listView" hidden>
+      <table class="task-table">
+        <caption class="sr-only">任务列表，按当前搜索与状态筛选显示</caption>
+        <colgroup>
+          <col class="col-id">
+          <col>
+          <col class="col-status">
+          <col class="col-module">
+          <col class="col-accept">
+          <col class="col-deps">
+          <col class="col-actions">
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">编号</th>
+            <th scope="col">任务</th>
+            <th scope="col">状态</th>
+            <th scope="col">模块</th>
+            <th scope="col">验收进度</th>
+            <th scope="col">依赖与更新时间</th>
+            <th scope="col">操作</th>
+          </tr>
+        </thead>
+        <tbody id="taskTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="state-panel empty-state" id="emptyState" hidden>
+      <div class="state-icon" aria-hidden="true">
+        <svg class="od-icon" style="--od-icon-size:27px"><use href="#i-inbox"></use></svg>
+      </div>
+      <p class="state-kicker">NO TASKS YET</p>
+      <h2>这个变更还没有任务</h2>
+      <p id="emptyDescription">该变更已创建，但还没有拆解出可执行任务。新建任务后，它会进入「待执行」列并纳入进度统计。</p>
+      <div class="state-actions">
+        <button class="btn btn-primary" id="emptyCreate" type="button">
+          <svg class="od-icon" style="--od-icon-size:14px" aria-hidden="true"><use href="#i-plus"></use></svg>
+          新建任务
+        </button>
+      </div>
+      <p class="state-hint" id="emptyHint">变更说明将显示在这里。</p>
+    </div>
+
+    <div class="state-panel no-results" id="noResults" hidden>
+      <div class="state-icon state-icon-small" aria-hidden="true">
+        <svg class="od-icon" style="--od-icon-size:22px"><use href="#i-search"></use></svg>
+      </div>
+      <h2 id="noResultsTitle">没有匹配的任务</h2>
+      <p id="noResultsDesc">试试调整搜索关键词，或切换到其他状态筛选。</p>
+      <div class="state-actions">
+        <button class="btn btn-secondary" id="clearFilters" type="button">清除搜索与筛选</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="false"></div>
+
+<dialog class="task-dialog" id="taskDialog" aria-labelledby="drawerTitle">
+  <div class="drawer-panel">
+    <header class="drawer-head">
+      <div class="drawer-heading">
+        <span class="drawer-kicker">TASK DETAIL</span>
+        <span class="drawer-rule" aria-hidden="true"></span>
+        <span class="drawer-kicker" style="letter-spacing:.04em;color:var(--muted-dim)">任务详情</span>
+      </div>
+      <button class="icon-btn" id="drawerClose" type="button" aria-label="关闭任务详情">
+        <svg class="od-icon" style="--od-icon-size:17px" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </header>
+    <div class="drawer-body" id="drawerBody"></div>
+    <footer class="drawer-footer" id="drawerFooter"></footer>
+    <div class="toast-region drawer-toasts" id="drawerToast" aria-live="polite" aria-atomic="false"></div>
+  </div>
+</dialog>
+
+<dialog class="form-dialog" id="createDialog" aria-labelledby="createTitle">
+  <div class="form-head">
+    <div>
+      <span class="form-kicker">NEW TASK</span>
+      <h2 id="createTitle">新建任务</h2>
+    </div>
+    <button class="icon-btn" id="createClose" type="button" aria-label="关闭新建任务">
+      <svg class="od-icon" style="--od-icon-size:17px" aria-hidden="true"><use href="#i-x"></use></svg>
+    </button>
+  </div>
+  <form id="createForm" novalidate>
+    <div class="form-body">
+      <div class="field">
+        <label for="newTaskTitle">任务标题 <span class="required" aria-hidden="true">*</span><span class="sr-only">必填</span></label>
+        <input
+          class="text-input"
+          id="newTaskTitle"
+          type="text"
+          placeholder="例如：补充回滚演练的锁释放检查"
+          autocomplete="off"
+          aria-required="true"
+          aria-describedby="newTaskTitleHelp newTaskTitleError"
+        >
+        <p class="field-help" id="newTaskTitleHelp">用可验证的动作描述任务，创建后可继续补充验收项。</p>
+        <p class="field-error" id="newTaskTitleError" role="alert" hidden>请输入任务标题。</p>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="newTaskModule">模块</label>
+          <select id="newTaskModule">
+            <option value="调度核心">调度核心</option>
+            <option value="配置中心">配置中心</option>
+            <option value="执行引擎">执行引擎</option>
+            <option value="可观测性">可观测性</option>
+            <option value="测试基建">测试基建</option>
+            <option value="发布工具">发布工具</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="newTaskExecutor">执行器</label>
+          <select id="newTaskExecutor">
+            <option value="plan-agent">plan-agent</option>
+            <option value="forge-02" selected>forge-02</option>
+            <option value="codex-01">codex-01</option>
+            <option value="test-runner">test-runner</option>
+            <option value="release-agent">release-agent</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="form-foot">
+      <button class="btn btn-secondary" id="createCancel" type="button">取消</button>
+      <button class="btn btn-primary" id="createSubmit" type="button">
+        <svg class="od-icon" style="--od-icon-size:14px" aria-hidden="true"><use href="#i-plus"></use></svg>
+        创建任务
+      </button>
+    </div>
+  </form>
+</dialog>
+<script>
+(() => {
+  'use strict';
+
+  const STATUS = {
+    pending: { label: '待执行' },
+    running: { label: '进行中' },
+    review: { label: '待人工审核' },
+    done: { label: '已完成' },
+    failed: { label: '已失败' }
+  };
+
+  const FILTERS = [
+    { key: 'all', label: '全部' },
+    { key: 'pending', label: '待执行' },
+    { key: 'running', label: '进行中' },
+    { key: 'review', label: '待人工审核' },
+    { key: 'done', label: '已完成' },
+    { key: 'failed', label: '已失败' }
+  ];
+
+  const BOARD_COLUMNS = [
+    { key: 'pending', label: '待执行' },
+    { key: 'running', label: '进行中' },
+    { key: 'review', label: '待人工审核' },
+    { key: 'done', label: '已完成' },
+    { key: 'failed', label: '失败 / 阻塞' }
+  ];
+
+  const ACCEPT_STATE = {
+    passed: { label: '通过', icon: 'check' },
+    failed: { label: '失败', icon: 'x' },
+    pending: { label: '未开始', icon: 'circle' }
+  };
+
+  const changes = [
+    {
+      id: 'ENG-142',
+      title: '调度器重试策略重构',
+      branch: 'feat/scheduler-retry',
+      description: '统一执行器的超时与重试语义，减少瞬时故障造成的整批失败。',
+      tasks: [
+        {
+          id: 'ENG-142-01',
+          title: '梳理调度超时与重试路径',
+          status: 'done',
+          module: '调度核心',
+          executor: 'plan-agent',
+          dependencies: [],
+          updatedAt: '10:08',
+          acceptance: [
+            { label: '覆盖 scheduler → executor 的 4 条超时路径', state: 'passed', evidenceId: 'EV-142-011' },
+            { label: '标注现有重试边界与副作用', state: 'passed', evidenceId: 'EV-142-012' },
+            { label: '状态机草稿与架构组对齐', state: 'passed', evidenceId: 'EV-142-013' }
+          ],
+          evidence: [
+            { time: '09:42', title: '开始静态分析', detail: '扫描 scheduler 与 executor 调用链。', state: 'neutral' },
+            { time: '10:02', title: '状态机草稿', detail: '4 条超时路径已标注，识别出 2 处隐式重试。', state: 'success', evidenceId: 'EV-142-011' },
+            { time: '10:05', title: '边界标注完成', detail: '为每处重试补充副作用与幂等性说明。', state: 'success', evidenceId: 'EV-142-012' },
+            { time: '10:08', title: '架构评审通过', detail: '确认以 attempt budget 替代全局重试。', state: 'success', evidenceId: 'EV-142-013' }
+          ],
+          verifyCommand: 'rg -n "retry|timeout" internal/scheduler',
+          completedAt: '10:08',
+          reviewNote: '',
+          failureReason: '',
+          remediation: ''
+        },
+        {
+          id: 'ENG-142-02',
+          title: '指数退避与抖动策略',
+          status: 'done',
+          module: '调度核心',
+          executor: 'forge-02',
+          dependencies: ['ENG-142-01'],
+          updatedAt: '10:31',
+          acceptance: [
+            { label: '退避序列符合 1s → 2s → 4s，上限 30s', state: 'passed', evidenceId: 'EV-142-021' },
+            { label: '加入 ±15% 抖动并封顶', state: 'passed', evidenceId: 'EV-142-022' },
+            { label: '单测覆盖 1000 次采样分布', state: 'passed', evidenceId: 'EV-142-023' },
+            { label: '不改变既有 API 契约', state: 'passed', evidenceId: 'EV-142-024' }
+          ],
+          evidence: [
+            { time: '10:16', title: '退避器实现', detail: '采用 full-jitter 变体，保留 30s 上限。', state: 'neutral' },
+            { time: '10:26', title: '单测通过', detail: '1000 次采样，P95 抖动为 13.8%。', state: 'success', evidenceId: 'EV-142-023' },
+            { time: '10:31', title: '契约检查通过', detail: '公开接口与错误码保持不变。', state: 'success', evidenceId: 'EV-142-024' }
+          ],
+          verifyCommand: 'go test ./internal/backoff -run TestJitter -count=1',
+          completedAt: '10:31',
+          reviewNote: '',
+          failureReason: '',
+          remediation: ''
+        },
+        {
+          id: 'ENG-142-03',
+          title: '重试预算与上限配置',
+          status: 'running',
+          module: '配置中心',
+          executor: 'forge-02',
+          dependencies: ['ENG-142-02'],
+          updatedAt: '10:44',
+          acceptance: [
+            { label: '新增 max_attempts 与 budget_window 字段', state: 'passed', evidenceId: 'EV-142-031' },
+            { label: '配置校验与默认值回填', state: 'passed', evidenceId: 'EV-142-032' },
+            { label: '灰度环境热加载验证', state: 'passed', evidenceId: 'EV-142-033' },
+            { label: '控制台配置文案与帮助', state: 'pending', evidenceId: null },
+            { label: '回滚默认值一致性检查', state: 'pending', evidenceId: null }
+          ],
+          evidence: [
+            { time: '10:28', title: '字段定义完成', detail: 'max_attempts=4，budget_window=300s。', state: 'success', evidenceId: 'EV-142-031' },
+            { time: '10:36', title: '校验逻辑通过', detail: '越界值与空值均回落到安全默认值。', state: 'success', evidenceId: 'EV-142-032' },
+            { time: '10:44', title: '灰度热加载生效', detail: 'retry.budget_window=300s 已在灰度实例生效。', state: 'success', evidenceId: 'EV-142-033' },
+            { time: '10:44', title: '执行器状态更新', detail: '正在补充控制台文案，尚未进入最终验收。', state: 'neutral' }
+          ],
+          verifyCommand: 'go test ./config/... -run TestRetryBudget -count=1',
+          completedAt: null,
+          reviewNote: '',
+          failureReason: '',
+          remediation: ''
+        },
+        {
+          id: 'ENG-142-04',
+          title: '幂等键与跨 worker 去重',
+          status: 'running',
+          module: '执行引擎',
+          executor: 'codex-01',
+          dependencies: ['ENG-142-01'],
+          updatedAt: '10:39',
+          acceptance: [
+            { label: '重试复用同一 idempotency_key', state: 'passed', evidenceId: 'EV-142-041' },
+            { label: '跨 worker 去重窗口 10min', state: 'passed', evidenceId: 'EV-142-042' },
+            { label: '并发 50 路重复提交压测', state: 'pending', evidenceId: null },
+            { label: '清理任务与 TTL 对齐', state: 'pending', evidenceId: null }
+          ],
+          evidence: [
+            { time: '10:09', title: '幂等键注入', detail: '重试请求复用首次执行的 idempotency_key。', state: 'success', evidenceId: 'EV-142-041' },
+            { time: '10:22', title: '跨 worker 去重验证', detail: '两个 worker 同时消费时仅保留一条执行记录。', state: 'success', evidenceId: 'EV-142-042' },
+            { time: '10:39', title: '并发压测排队', detail: '等待测试基建分配 50 路并发窗口。', state: 'neutral' }
+          ],
+          verifyCommand: 'go test ./internal/dedupe -run TestConcurrentWorkers -count=1',
+          completedAt: null,
+          reviewNote: '',
+          failureReason: '',
+          remediation: ''
+        },
+        {
+          id: 'ENG-142-05',
+          title: '失败任务告警与事件接入',
+          status: 'review',
+          module: '可观测性',
+          executor: 'forge-02',
+          dependencies: ['ENG-142-02'],
+          updatedAt: '10:46',
+          acceptance: [
+            { label: '失败事件写入 event bus', state: 'passed', evidenceId: 'EV-142-051' },
+            { label: '告警去重窗口 5min', state: 'passed', evidenceId: 'EV-142-052' },
+            { label: '值班路由匹配 service=orchestrator', state: 'passed', evidenceId: 'EV-142-053' },
+            { label: '灰度环境注入故障验证', state: 'passed', evidenceId: 'EV-142-054' }
+          ],
+          evidence: [
+            { time: '10:12', title: '失败事件接入', detail: 'executor.failed 已写入 orchestrator.events.v2。', state: 'success', evidenceId: 'EV-142-051' },
+            { time: '10:24', title: '告警去重生效', detail: '5 分钟内的重复失败合并为 1 条告警。', state: 'success', evidenceId: 'EV-142-052' },
+            { time: '10:33', title: '值班路由校验', detail: 'service=orchestrator 正确路由至平台值班组。', state: 'success', evidenceId: 'EV-142-053' },
+            { time: '10:46', title: '灰度故障注入', detail: '3 次注入均触发告警，未出现重复通知。', state: 'success', evidenceId: 'EV-142-054' }
+          ],
+          verifyCommand: 'go test ./observability/... -run TestFailureAlert -v',
+          completedAt: null,
+          reviewNote: '自动化验收已全部通过，需要你确认生产行为符合预期。',
+          failureReason: '',
+          remediation: ''
+        },
+        {
+          id: 'ENG-142-06',
+          title: '重试链路集成测试',
+          status: 'pending',
+          module: '测试基建',
+          executor: 'test-runner',
+          dependencies: ['ENG-142-02'],
+          updatedAt: '09:58',
+          acceptance: [
+            { label: '覆盖超时后成功重试', state: 'pending', evidenceId: null },
+            { label: '覆盖预算耗尽后的失败', state: 'pending', evidenceId: null },
+            { label: '验证告警只触发一次', state: 'pending', evidenceId: null },
+            { label: '回归现有 32 个调度用例', state: 'pending', evidenceId: null }
+          ],
+          evidence: [
+            { time: '09:58', title: '任务已排队', detail: '依赖已满足，等待执行器领取。', state: 'neutral' }
+          ],
+          verifyCommand: 'make test-integration SUITE=scheduler-retry',
+          completedAt: null,
+          reviewNote: '',
+          failureReason: '',
+          remediation: ''
+        },
+        {
+          id: 'ENG-142-07',
+          title: '压测与尾延迟验证',
+          status: 'pending',
+          module: '性能',
+          executor: 'perf-runner',
+          dependencies: ['ENG-142-03', 'ENG-142-04'],
+          updatedAt: '09:51',
+          acceptance: [
+            { label: '10k 任务/分钟稳态压测', state: 'pending', evidenceId: null },
+            { label: 'P99 调度延迟 ≤ 120ms', state: 'pending', evidenceId: null },
+            { label: '重试风暴下队列不失控', state: 'pending', evidenceId: null }
+          ],
+          evidence: [
+            { time: '09:51', title: '等待上游依赖', detail: '需要配置中心与幂等改造合入后才能启动压测。', state: 'neutral' }
+          ],
+          verifyCommand: 'k6 run perf/scheduler-retry.js',
+          completedAt: null,
+          reviewNote: '',
+          failureReason: '',
+          remediation: ''
+        },
+        {
+          id: 'ENG-142-08',
+          title: '回滚脚本与灰度手册',
+          status: 'failed',
+          module: '发布工具',
+          executor: 'release-agent',
+          dependencies: ['ENG-142-03'],
+          updatedAt: '10:22',
+          acceptance: [
+            { label: '回滚脚本 dry-run 通过', state: 'passed', evidenceId: 'EV-142-081' },
+            { label: '灰度批次与观测窗口定义', state: 'passed', evidenceId: 'EV-142-082' },
+            { label: '预发环境回滚演练', state: 'failed', evidenceId: 'EV-142-083' },
+            { label: '值班交接清单', state: 'pending', evidenceId: null }
+          ],
+          evidence: [
+            { time: '10:12', title: '回滚脚本就绪', detail: '支持按 release 与 namespace 精确回滚。', state: 'success', evidenceId: 'EV-142-081' },
+            { time: '10:18', title: '灰度手册更新', detail: '定义 5% → 25% → 100% 三批观测窗口。', state: 'success', evidenceId: 'EV-142-082' },
+            { time: '10:20', title: '预发 dry-run 通过', detail: 'release 命名空间下 11 个资源可回滚。', state: 'success' },
+            { time: '10:22', title: '预发演练失败', detail: '预发环境回滚超时：release-lock 未释放 (job 8f21)。', state: 'failure', evidenceId: 'EV-142-083' }
+          ],
+          verifyCommand: './scripts/rollback --env staging --dry-run',
+          completedAt: null,
+          reviewNote: '',
+          failureReason: '预发环境回滚在释放 release-lock 时超时，演练未完成，当前阻塞灰度发布。',
+          remediation: '检查 release-lock 的 TTL 与持有者，补上异常释放路径后重跑演练。'
+        },
+        {
+          id: 'ENG-142-09',
+          title: '值班看板与运行手册更新',
+          status: 'done',
+          module: '可观测性',
+          executor: 'docs-agent',
+          dependencies: ['ENG-142-02'],
+          updatedAt: '10:37',
+          acceptance: [
+            { label: 'retry_budget_exhausted 指标已上线', state: 'passed', evidenceId: 'EV-142-091' },
+            { label: '运行手册补充重试排查步骤', state: 'passed', evidenceId: 'EV-142-092' },
+            { label: '文档链接与截图校验通过', state: 'passed', evidenceId: 'EV-142-093' }
+          ],
+          evidence: [
+            { time: '10:26', title: '看板指标更新', detail: '新增 retry_budget_exhausted 与 attempt 分布。', state: 'success', evidenceId: 'EV-142-091' },
+            { time: '10:34', title: '运行手册完成', detail: '补充重试风暴、预算耗尽与回滚三条排查路径。', state: 'success', evidenceId: 'EV-142-092' },
+            { time: '10:37', title: '文档校验通过', detail: '内部链接与截图均返回有效资源。', state: 'success', evidenceId: 'EV-142-093' }
+          ],
+          verifyCommand: 'node scripts/check-docs.mjs docs/runbooks/scheduler.md',
+          completedAt: '10:37',
+          reviewNote: '',
+          failureReason: '',
+          remediation: ''
+        }
+      ]
+    },
+    {
+      id: 'ENG-149',
+      title: '执行结果导出',
+      branch: 'feat/result-export',
+      description: '支持将执行结果导出为 CSV 与 JSON，并补齐审计字段。',
+      tasks: []
+    }
+  ];
+
+  const state = {
+    changeId: 'ENG-142',
+    view: 'board',
+    query: '',
+    filter: 'all',
+    drawerTaskId: null
+  };
+
+  const els = {
+    changeButton: document.getElementById('changeButton'),
+    changeCurrentId: document.getElementById('changeCurrentId'),
+    changeMenu: document.getElementById('changeMenu'),
+    changeMenuList: document.getElementById('changeMenuList'),
+    overviewTitle: document.getElementById('overviewTitle'),
+    overviewDesc: document.getElementById('overviewDesc'),
+    overviewBranch: document.getElementById('overviewBranch'),
+    overviewDot: document.getElementById('overviewDot'),
+    overviewSignal: document.getElementById('overviewSignal'),
+    statTotal: document.getElementById('statTotal'),
+    statBlocked: document.getElementById('statBlocked'),
+    statReady: document.getElementById('statReady'),
+    progressPercent: document.getElementById('progressPercent'),
+    progressFill: document.getElementById('progressFill'),
+    progressTrack: document.getElementById('progressTrack'),
+    progressFraction: document.getElementById('progressFraction'),
+    progressRemaining: document.getElementById('progressRemaining'),
+    reviewBanner: document.getElementById('reviewBanner'),
+    reviewBannerCount: document.getElementById('reviewBannerCount'),
+    reviewJump: document.getElementById('reviewJump'),
+    taskSearch: document.getElementById('taskSearch'),
+    clearSearch: document.getElementById('clearSearch'),
+    filterChips: document.getElementById('filterChips'),
+    viewSwitch: document.getElementById('viewSwitch'),
+    boardView: document.getElementById('boardView'),
+    listView: document.getElementById('listView'),
+    taskTableBody: document.getElementById('taskTableBody'),
+    emptyState: document.getElementById('emptyState'),
+    emptyDescription: document.getElementById('emptyDescription'),
+    emptyHint: document.getElementById('emptyHint'),
+    emptyCreate: document.getElementById('emptyCreate'),
+    noResults: document.getElementById('noResults'),
+    noResultsTitle: document.getElementById('noResultsTitle'),
+    noResultsDesc: document.getElementById('noResultsDesc'),
+    clearFilters: document.getElementById('clearFilters'),
+    toastRegion: document.getElementById('toastRegion'),
+    taskDialog: document.getElementById('taskDialog'),
+    drawerBody: document.getElementById('drawerBody'),
+    drawerFooter: document.getElementById('drawerFooter'),
+    drawerClose: document.getElementById('drawerClose'),
+    drawerToast: document.getElementById('drawerToast'),
+    createDialog: document.getElementById('createDialog'),
+    createForm: document.getElementById('createForm'),
+    createClose: document.getElementById('createClose'),
+    createCancel: document.getElementById('createCancel'),
+    createSubmit: document.getElementById('createSubmit'),
+    newTaskTitle: document.getElementById('newTaskTitle'),
+    newTaskTitleError: document.getElementById('newTaskTitleError'),
+    newTaskModule: document.getElementById('newTaskModule'),
+    newTaskExecutor: document.getElementById('newTaskExecutor')
+  };
+
+  let lastDrawerTaskId = null;
+  let lastDrawerTrigger = null;
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[char]));
+  }
+
+  function icon(name, size = 16) {
+    return `<svg class="od-icon" style="--od-icon-size:${Number(size)}px" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+  }
+
+  function getActiveChange() {
+    return changes.find(change => change.id === state.changeId) || changes[0];
+  }
+
+  function getTask(taskId) {
+    return getActiveChange().tasks.find(task => task.id === taskId) || null;
+  }
+
+  function countStatuses(tasks) {
+    const counts = { all: tasks.length, pending: 0, running: 0, review: 0, done: 0, failed: 0 };
+    tasks.forEach(task => {
+      if (Object.prototype.hasOwnProperty.call(counts, task.status)) counts[task.status] += 1;
+    });
+    return counts;
+  }
+
+  function acceptanceStats(task) {
+    const total = task.acceptance.length;
+    const passed = task.acceptance.filter(item => item.state === 'passed').length;
+    const failed = task.acceptance.filter(item => item.state === 'failed').length;
+    return { total, passed, failed, ratio: total ? passed / total : 0 };
+  }
+
+  function matchesQuery(task, query) {
+    if (!query) return true;
+    const haystack = `${task.id} ${task.title} ${task.module}`.toLowerCase();
+    return haystack.includes(query);
+  }
+
+  function getSearchBase() {
+    const query = state.query.trim().toLowerCase();
+    return getActiveChange().tasks.filter(task => matchesQuery(task, query));
+  }
+
+  function getCounts() {
+    return countStatuses(getSearchBase());
+  }
+
+  function getFilteredTasks() {
+    const base = getSearchBase();
+    return state.filter === 'all' ? base : base.filter(task => task.status === state.filter);
+  }
+
+  function currentFilterLabel() {
+    return (FILTERS.find(filter => filter.key === state.filter) || FILTERS[0]).label;
+  }
+
+  function shortId(taskId) {
+    return String(taskId).split('-').pop();
+  }
+
+  function statusBadge(status) {
+    const meta = STATUS[status] || STATUS.pending;
+    return `<span class="badge badge-${status}"><span class="status-dot ${status}" aria-hidden="true"></span>${meta.label}</span>`;
+  }
+
+  function moduleChip(moduleName) {
+    return `<span class="module-chip">${escapeHtml(moduleName)}</span>`;
+  }
+
+  function renderChangeMenu() {
+    els.changeMenuList.innerHTML = changes.map(change => {
+      const active = change.id === state.changeId;
+      const taskCount = change.tasks.length;
+      const countLabel = taskCount === 0 ? '空变更' : `${taskCount} 个任务`;
+      return `
+        <button
+          class="change-option"
+          type="button"
+          role="menuitemradio"
+          aria-checked="${active}"
+          data-change-id="${escapeHtml(change.id)}"
+        >
+          <span class="change-option-main">
+            <span class="change-option-id">${escapeHtml(change.id)}</span>
+            <span class="change-option-title">${escapeHtml(change.title)}</span>
+          </span>
+          <span class="change-option-meta">${countLabel}</span>
+          <span class="change-option-check" aria-hidden="true">${active ? icon('check', 13) : ''}</span>
+        </button>`;
+    }).join('');
+  }
+
+  function renderSummary() {
+    const change = getActiveChange();
+    const counts = countStatuses(change.tasks);
+    const total = change.tasks.length;
+    const done = counts.done;
+    const ratio = total ? done / total : 0;
+    const percent = Math.round(ratio * 100);
+    const ready = change.tasks.filter(task => {
+      if (task.status !== 'pending') return false;
+      return task.dependencies.every(dependencyId => getTask(dependencyId)?.status === 'done');
+    }).length;
+
+    let signal = { key: 'running', label: '变更进行中' };
+    if (total === 0) signal = { key: 'pending', label: '等待拆解' };
+    else if (counts.failed > 0) signal = { key: 'failed', label: '存在阻塞' };
+    else if (counts.review > 0) signal = { key: 'review', label: '等待人工确认' };
+    else if (done === total) signal = { key: 'done', label: '变更已完成' };
+
+    els.changeCurrentId.textContent = change.id;
+    els.changeButton.title = `当前变更：${change.id} ${change.title}`;
+    els.changeButton.setAttribute('aria-label', `切换变更，当前 ${change.id}`);
+    els.overviewTitle.textContent = change.title;
+    els.overviewDesc.textContent = change.description;
+    els.overviewBranch.textContent = change.branch;
+    els.overviewDot.className = `status-dot ${signal.key}`;
+    els.overviewSignal.textContent = signal.label;
+    els.statTotal.textContent = String(total);
+    els.statBlocked.textContent = String(counts.failed);
+    els.statReady.textContent = String(ready);
+
+    els.progressPercent.textContent = `${percent}%`;
+    els.progressFill.style.setProperty('--progress', ratio.toFixed(4));
+    els.progressFill.classList.toggle('is-complete', total > 0 && done === total);
+    els.progressTrack.setAttribute('aria-valuenow', String(percent));
+    els.progressTrack.setAttribute('aria-valuetext', `${done} / ${total} 项已完成`);
+    els.progressFraction.textContent = `${done} / ${total} 已完成`;
+    els.progressRemaining.textContent = total ? `剩余 ${total - done}` : '尚未开始';
+    document.title = `${change.id} · 任务看板 | Engineering Planner`;
+  }
+
+  function renderBanner() {
+    const reviewCount = getActiveChange().tasks.filter(task => task.status === 'review').length;
+    els.reviewBanner.hidden = reviewCount === 0;
+    els.reviewBannerCount.textContent = String(reviewCount);
+  }
+
+  function renderChips() {
+    const counts = getCounts();
+    els.filterChips.innerHTML = FILTERS.map(filter => `
+      <button
+        class="filter-chip"
+        id="filter-${filter.key}"
+        type="button"
+        data-filter="${filter.key}"
+        aria-pressed="${state.filter === filter.key}"
+      >
+        ${filter.label}
+        <span class="chip-count">${counts[filter.key]}</span>
+      </button>`).join('');
+  }
+
+  function updateViewButtons() {
+    els.viewSwitch.querySelectorAll('[data-view]').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.dataset.view === state.view));
+    });
+  }
+
+  function syncSearchUi() {
+    if (els.taskSearch.value !== state.query) els.taskSearch.value = state.query;
+    els.clearSearch.hidden = state.query.length === 0;
+  }
+
+  function renderNoResults() {
+    const filterLabel = currentFilterLabel();
+    if (state.query) {
+      els.noResultsTitle.textContent = '没有匹配的任务';
+      els.noResultsDesc.textContent = state.filter === 'all'
+        ? `没有找到包含“${state.query}”的标题、编号或模块。`
+        : `当前「${filterLabel}」筛选下没有包含“${state.query}”的任务。`;
+    } else {
+      els.noResultsTitle.textContent = `${filterLabel}下暂无任务`;
+      els.noResultsDesc.textContent = '当前变更没有处于该状态的任务，切换筛选查看其他任务。';
+    }
+  }
+
+  function renderTaskViews() {
+    const change = getActiveChange();
+    const total = change.tasks.length;
+    const filtered = getFilteredTasks();
+    const noMatches = total > 0 && filtered.length === 0;
+
+    els.emptyState.hidden = total !== 0;
+    els.noResults.hidden = !noMatches;
+    updateViewButtons();
+
+    if (total === 0) {
+      els.emptyDescription.textContent = `${change.id} 的变更说明已就绪，但还没有拆解出可执行任务。新建一个任务后，它会进入「待执行」列并纳入进度统计。`;
+      els.emptyHint.textContent = `变更说明：${change.description}`;
+      els.boardView.hidden = true;
+      els.listView.hidden = true;
+      return;
+    }
+
+    if (noMatches) {
+      renderNoResults();
+      els.boardView.hidden = true;
+      els.listView.hidden = true;
+      return;
+    }
+
+    renderBoard(filtered);
+    renderList(filtered);
+    els.boardView.hidden = state.view !== 'board';
+    els.listView.hidden = state.view !== 'list';
+  }
+
+  function renderBoard(tasks) {
+    const grouped = { pending: [], running: [], review: [], done: [], failed: [] };
+    tasks.forEach(task => {
+      if (grouped[task.status]) grouped[task.status].push(task);
+    });
+
+    els.boardView.innerHTML = BOARD_COLUMNS.map(column => {
+      const columnTasks = grouped[column.key];
+      const hint = column.key === 'review' && columnTasks.length > 0
+        ? '<span class="column-hint">需要你</span>'
+        : '';
+      const cards = columnTasks.length
+        ? columnTasks.map(taskCard).join('')
+        : `<p class="column-empty">${column.key === 'review' ? '没有待确认任务' : '暂无任务'}</p>`;
+      return `
+        <section class="board-column" aria-labelledby="column-${column.key}">
+          <header class="column-head">
+            <span class="status-dot ${column.key}" aria-hidden="true"></span>
+            <h3 id="column-${column.key}">${column.label}</h3>
+            <span class="column-count">${columnTasks.length}</span>
+            ${hint}
+          </header>
+          <div class="column-cards">${cards}</div>
+        </section>`;
+    }).join('');
+  }
+
+  function taskCard(task) {
+    const stats = acceptanceStats(task);
+    const progressClass = stats.failed > 0
+      ? 'is-failed'
+      : (stats.total > 0 && stats.passed === stats.total ? 'is-complete' : '');
+    const reviewClass = task.status === 'review' ? ' task-card-review' : '';
+    const failedClass = task.status === 'failed' ? ' task-card-failed' : '';
+    const cta = task.status === 'review'
+      ? `<div class="card-cta"><button class="btn btn-primary btn-sm btn-block" type="button" data-confirm-task="${escapeHtml(task.id)}" aria-label="确认完成 ${escapeHtml(task.id)}">${icon('check', 13)}确认完成</button></div>`
+      : '';
+
+    return `
+      <article class="task-card${reviewClass}${failedClass}">
+        <div
+          class="card-main"
+          role="button"
+          tabindex="0"
+          data-open-task="${escapeHtml(task.id)}"
+          data-task-id="${escapeHtml(task.id)}"
+          aria-label="查看任务 ${escapeHtml(task.id)}：${escapeHtml(task.title)}"
+        >
+          <div class="card-top">
+            <span class="task-id">${escapeHtml(task.id)}</span>
+            ${statusBadge(task.status)}
+          </div>
+          <h4 class="card-title">${escapeHtml(task.title)}</h4>
+          <div class="card-tags">
+            ${moduleChip(task.module)}
+            <span class="card-accept-label">验收 <strong>${stats.passed}/${stats.total}</strong></span>
+          </div>
+          <div class="mini-track" aria-hidden="true"><i class="${progressClass}" style="--progress:${stats.ratio.toFixed(3)}"></i></div>
+          <div class="card-foot">
+            <span class="card-executor" title="执行器：${escapeHtml(task.executor)}">${icon('terminal', 11)}<span>${escapeHtml(task.executor)}</span></span>
+            <span class="card-updated">${escapeHtml(task.updatedAt)}</span>
+          </div>
+        </div>
+        ${cta}
+      </article>`;
+  }
+
+  function renderList(tasks) {
+    els.taskTableBody.innerHTML = tasks.map(task => {
+      const stats = acceptanceStats(task);
+      const progressClass = stats.failed > 0
+        ? 'is-failed'
+        : (stats.total > 0 && stats.passed === stats.total ? 'is-complete' : '');
+      const dependencyText = task.dependencies.length
+        ? `依赖 ${task.dependencies.map(shortId).join(' · ')}`
+        : '无依赖';
+      const confirmButton = task.status === 'review'
+        ? `<button class="btn btn-primary btn-sm" type="button" data-confirm-task="${escapeHtml(task.id)}" aria-label="确认完成 ${escapeHtml(task.id)}">确认完成</button>`
+        : '';
+
+      return `
+        <tr data-row-id="${escapeHtml(task.id)}">
+          <td class="cell-id">
+            <button class="id-link" type="button" data-open-task="${escapeHtml(task.id)}" data-task-id="${escapeHtml(task.id)}" aria-label="打开任务 ${escapeHtml(task.id)}">${escapeHtml(task.id)}</button>
+          </td>
+          <td class="cell-task">
+            <button class="row-title" type="button" data-open-task="${escapeHtml(task.id)}" data-task-id="${escapeHtml(task.id)}">${escapeHtml(task.title)}</button>
+            <span class="row-sub">${escapeHtml(task.executor)}</span>
+          </td>
+          <td class="cell-status">${statusBadge(task.status)}</td>
+          <td class="cell-module">${moduleChip(task.module)}</td>
+          <td class="cell-accept">
+            <div class="table-progress" aria-label="验收 ${stats.passed} / ${stats.total} 通过">
+              <span class="table-progress-text">${stats.passed}/${stats.total}</span>
+              <span class="mini-track table-track" aria-hidden="true"><i class="${progressClass}" style="--progress:${stats.ratio.toFixed(3)}"></i></span>
+            </div>
+          </td>
+          <td class="cell-deps">
+            <span class="deps-line">${escapeHtml(dependencyText)}</span>
+            <span class="update-line">更新 ${escapeHtml(task.updatedAt)}</span>
+          </td>
+          <td class="cell-actions">
+            <div class="row-actions">
+              <button class="btn btn-ghost btn-sm" type="button" data-open-task="${escapeHtml(task.id)}" data-task-id="${escapeHtml(task.id)}" aria-label="查看任务 ${escapeHtml(task.id)}">查看</button>
+              ${confirmButton}
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+  }
+
+  function dependencyMarkup(task) {
+    if (!task.dependencies.length) return '<span class="fact-empty">无依赖</span>';
+    return `<div class="dep-list">${task.dependencies.map(dependencyId => {
+      const dependency = getTask(dependencyId);
+      const status = dependency?.status || 'pending';
+      return `<span class="dep-pill"><span class="status-dot ${status}" aria-hidden="true"></span>${escapeHtml(dependencyId)}<span class="dep-status">${STATUS[status]?.label || '未知'}</span></span>`;
+    }).join('')}</div>`;
+  }
+
+  function renderDrawer() {
+    const task = getTask(state.drawerTaskId);
+    if (!task) return;
+
+    const stats = acceptanceStats(task);
+    const acceptanceHtml = task.acceptance.length
+      ? `<ul class="acceptance-list">${task.acceptance.map(item => {
+          const meta = ACCEPT_STATE[item.state] || ACCEPT_STATE.pending;
+          return `
+            <li class="acceptance-item is-${item.state}">
+              <span class="accept-icon" aria-hidden="true">${icon(meta.icon, item.state === 'pending' ? 11 : 12)}</span>
+              <span class="accept-copy">
+                <span class="accept-label">${escapeHtml(item.label)}</span>
+                <span class="accept-evidence">${escapeHtml(item.evidenceId || '暂无证据')}</span>
+              </span>
+              <span class="accept-state">${meta.label}</span>
+            </li>`;
+        }).join('')}</ul>`
+      : '<p class="section-empty">尚未配置验收标准。</p>';
+
+    const timelineHtml = task.evidence.length
+      ? `<ol class="timeline">${task.evidence.map(item => `
+          <li class="timeline-item">
+            <time class="timeline-time">${escapeHtml(item.time)}</time>
+            <div class="timeline-copy">
+              <span class="timeline-dot ${item.state || 'neutral'}" aria-hidden="true"></span>
+              <p class="timeline-title">${escapeHtml(item.title)}</p>
+              <p class="timeline-detail">${escapeHtml(item.detail)}</p>
+              ${item.evidenceId ? `<span class="timeline-evidence">${escapeHtml(item.evidenceId)}</span>` : ''}
+            </div>
+          </li>`).join('')}</ol>`
+      : '<p class="section-empty">暂无证据记录。</p>';
+
+    let notice = '';
+    if (task.status === 'review') {
+      notice = `
+        <div class="notice notice-review" role="note">
+          ${icon('alert', 16)}
+          <div>
+            <h3>等待人工确认</h3>
+            <p>${escapeHtml(task.reviewNote || '自动验收已通过，等待你确认。')}</p>
+            <p>确认完成后，任务将归档为已完成，并同步更新顶部进度与「需要你处理」通知。</p>
+          </div>
+        </div>`;
+    } else if (task.status === 'failed') {
+      notice = `
+        <div class="notice notice-failure" role="note">
+          ${icon('alert', 16)}
+          <div>
+            <h3>失败原因 · 发布阻塞</h3>
+            <p>${escapeHtml(task.failureReason || '执行失败，需要进一步排查。')}</p>
+            ${task.remediation ? `<p><b>建议：</b>${escapeHtml(task.remediation)}</p>` : ''}
+          </div>
+        </div>`;
+    }
+
+    const commandHtml = task.verifyCommand
+      ? `<div class="command-box"><pre><code>${escapeHtml(task.verifyCommand)}</code></pre><button class="copy-btn" type="button" data-copy-command>复制</button></div>`
+      : '<p class="section-empty">尚未配置验证命令。</p>';
+
+    els.drawerBody.innerHTML = `
+      <div class="drawer-title-row">
+        <span class="drawer-id">${escapeHtml(task.id)}</span>
+        ${statusBadge(task.status)}
+      </div>
+      <h2 class="drawer-title" id="drawerTitle">${escapeHtml(task.title)}</h2>
+      <div class="drawer-subline">
+        ${moduleChip(task.module)}
+        <span class="drawer-executor">${icon('terminal', 11)}${escapeHtml(task.executor)}</span>
+      </div>
+      <div class="detail-facts" aria-label="任务信息">
+        <div class="fact">
+          <span class="fact-label">模块</span>
+          <span class="fact-value">${escapeHtml(task.module)}</span>
+        </div>
+        <div class="fact">
+          <span class="fact-label">执行器</span>
+          <span class="fact-value mono">${escapeHtml(task.executor)}</span>
+        </div>
+        <div class="fact">
+          <span class="fact-label">依赖</span>
+          ${dependencyMarkup(task)}
+        </div>
+        <div class="fact">
+          <span class="fact-label">更新时间</span>
+          <span class="fact-value mono">${escapeHtml(task.updatedAt)}</span>
+        </div>
+      </div>
+      ${notice}
+      <section class="detail-section" aria-labelledby="acceptanceHeading">
+        <div class="section-head">
+          <h3 id="acceptanceHeading">验收标准</h3>
+          <span class="section-meta">${stats.passed} / ${stats.total} 通过</span>
+        </div>
+        ${acceptanceHtml}
+      </section>
+      <section class="detail-section" aria-labelledby="timelineHeading">
+        <div class="section-head">
+          <h3 id="timelineHeading">证据时间线</h3>
+          <span class="section-meta">${task.evidence.length} 条记录</span>
+        </div>
+        ${timelineHtml}
+      </section>
+      <section class="detail-section" aria-labelledby="commandHeading">
+        <div class="section-head">
+          <h3 id="commandHeading">验证命令</h3>
+          <span class="section-meta">本地执行</span>
+        </div>
+        ${commandHtml}
+      </section>`;
+
+    let footerNote = '';
+    if (task.status === 'review') {
+      footerNote = `<span class="status-dot review" aria-hidden="true"></span><span>自动验收 ${stats.passed}/${stats.total} 通过</span>`;
+    } else if (task.status === 'done') {
+      footerNote = `<span class="status-dot done" aria-hidden="true"></span><span>已完成归档${task.completedAt ? ` · ${escapeHtml(task.completedAt)}` : ''}</span>`;
+    } else if (task.status === 'failed') {
+      footerNote = '<span class="status-dot failed" aria-hidden="true"></span><span>已失败 · 需要处理</span>';
+    } else if (task.status === 'running') {
+      footerNote = `<span class="status-dot running" aria-hidden="true"></span><span>执行中 · 更新于 ${escapeHtml(task.updatedAt)}</span>`;
+    } else {
+      footerNote = `<span class="status-dot pending" aria-hidden="true"></span><span>待执行 · 更新于 ${escapeHtml(task.updatedAt)}</span>`;
+    }
+
+    const actions = task.status === 'review'
+      ? `<div class="footer-actions">
+           <button class="btn btn-secondary" type="button" data-close-drawer>关闭</button>
+           <button class="btn btn-primary" type="button" data-confirm-task="${escapeHtml(task.id)}">${icon('check', 14)}确认完成</button>
+         </div>`
+      : `<div class="footer-actions"><button class="btn btn-secondary" type="button" data-close-drawer>关闭</button></div>`;
+
+    els.drawerFooter.innerHTML = `<div class="footer-note">${footerNote}</div>${actions}`;
+  }
+
+  function openDrawer(taskId, trigger) {
+    const task = getTask(taskId);
+    if (!task) return;
+    lastDrawerTaskId = taskId;
+    lastDrawerTrigger = trigger instanceof HTMLElement ? trigger : null;
+    state.drawerTaskId = taskId;
+    renderDrawer();
+    document.body.classList.add('drawer-open');
+    if (!els.taskDialog.open) els.taskDialog.showModal();
+    els.drawerBody.scrollTop = 0;
+    requestAnimationFrame(() => els.drawerClose.focus());
+  }
+
+  function closeDrawer() {
+    if (els.taskDialog.open) els.taskDialog.close();
+  }
+
+  function focusTask(taskId) {
+    const candidates = Array.from(document.querySelectorAll('[data-open-task]'))
+      .filter(node => node.dataset.openTask === taskId && node.offsetParent !== null);
+    if (!candidates.length) return false;
+    candidates[0].focus();
+    return true;
+  }
+
+  function focusFilter(filterKey) {
+    const chip = document.getElementById(`filter-${filterKey}`);
+    if (chip) {
+      chip.focus();
+      return true;
+    }
+    return false;
+  }
+
+  function showToast(message, tone = 'success') {
+    const host = els.taskDialog.open ? els.drawerToast : els.toastRegion;
+    while (host.children.length >= 3) host.firstElementChild.remove();
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${tone}`;
+    toast.setAttribute('role', 'status');
+    toast.innerHTML = `${icon(tone === 'failure' ? 'alert' : 'check', 14)}<span>${escapeHtml(message)}</span>`;
+    host.appendChild(toast);
+    window.setTimeout(() => {
+      toast.classList.add('is-leaving');
+      window.setTimeout(() => toast.remove(), 180);
+    }, 2800);
+  }
+
+  function renderAll() {
+    renderChangeMenu();
+    renderSummary();
+    renderBanner();
+    renderChips();
+    renderTaskViews();
+  }
+
+  function confirmTask(taskId) {
+    const task = getTask(taskId);
+    if (!task || task.status !== 'review') return;
+
+    const time = '刚刚';
+    task.status = 'done';
+    task.completedAt = time;
+    task.updatedAt = time;
+    task.evidence.push({
+      time,
+      title: '人工确认完成',
+      detail: '你确认验收结果，任务已归档为完成。',
+      state: 'success'
+    });
+
+    const remainingReviews = getActiveChange().tasks.filter(item => item.status === 'review').length;
+    if (state.filter === 'review' && remainingReviews === 0) state.filter = 'all';
+
+    renderChangeMenu();
+    renderSummary();
+    renderBanner();
+    renderChips();
+    renderTaskViews();
+
+    if (els.taskDialog.open && state.drawerTaskId === taskId) {
+      renderDrawer();
+      requestAnimationFrame(() => els.drawerClose.focus());
+    } else {
+      requestAnimationFrame(() => {
+        if (!focusTask(taskId)) {
+          if (!focusFilter(state.filter)) focusFilter('all');
+        }
+      });
+    }
+
+    showToast(`${taskId} 已确认完成，顶部进度已更新。`, 'success');
+  }
+
+  function switchChange(changeId) {
+    if (changeId === state.changeId) {
+      closeChangeMenu(true);
+      return;
+    }
+    closeChangeMenu(false);
+    if (els.taskDialog.open) closeDrawer();
+    state.changeId = changeId;
+    state.query = '';
+    state.filter = 'all';
+    syncSearchUi();
+    renderAll();
+    requestAnimationFrame(() => els.changeButton.focus());
+  }
+
+  function openChangeMenu() {
+    els.changeMenu.hidden = false;
+    els.changeButton.setAttribute('aria-expanded', 'true');
+    requestAnimationFrame(() => {
+      const activeOption = els.changeMenu.querySelector('[aria-checked="true"]');
+      const firstOption = els.changeMenu.querySelector('[role="menuitemradio"]');
+      (activeOption || firstOption)?.focus();
+    });
+  }
+
+  function closeChangeMenu(restoreFocus = false) {
+    if (els.changeMenu.hidden) return;
+    els.changeMenu.hidden = true;
+    els.changeButton.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) els.changeButton.focus();
+  }
+
+  function toggleChangeMenu() {
+    if (els.changeMenu.hidden) openChangeMenu();
+    else closeChangeMenu(true);
+  }
+
+  function nextTaskId(change) {
+    const numbers = change.tasks
+      .map(task => Number(String(task.id).split('-').pop()))
+      .filter(value => Number.isFinite(value));
+    const nextNumber = (numbers.length ? Math.max(...numbers) : 0) + 1;
+    return `${change.id}-${String(nextNumber).padStart(2, '0')}`;
+  }
+
+  function setTitleError(show) {
+    els.newTaskTitleError.hidden = !show;
+    if (show) els.newTaskTitle.setAttribute('aria-invalid', 'true');
+    else els.newTaskTitle.removeAttribute('aria-invalid');
+  }
+
+  function openCreateDialog() {
+    els.createForm.reset();
+    setTitleError(false);
+    els.newTaskModule.value = '调度核心';
+    els.newTaskExecutor.value = 'forge-02';
+    if (!els.createDialog.open) els.createDialog.showModal();
+    requestAnimationFrame(() => els.newTaskTitle.focus());
+  }
+
+  function closeCreateDialog() {
+    if (els.createDialog.open) els.createDialog.close();
+  }
+
+  function createTask() {
+    const title = els.newTaskTitle.value.trim().replace(/\s+/g, ' ');
+    if (!title) {
+      setTitleError(true);
+      els.newTaskTitle.focus();
+      return;
+    }
+
+    setTitleError(false);
+    const change = getActiveChange();
+    const id = nextTaskId(change);
+    const time = '刚刚';
+
+    change.tasks.push({
+      id,
+      title,
+      status: 'pending',
+      module: els.newTaskModule.value,
+      executor: els.newTaskExecutor.value,
+      dependencies: [],
+      updatedAt: time,
+      acceptance: [
+        { label: '补充验收标准与验证命令', state: 'pending', evidenceId: null }
+      ],
+      evidence: [
+        { time, title: '任务已创建', detail: '由你在任务看板中创建。', state: 'neutral' }
+      ],
+      verifyCommand: '',
+      completedAt: null,
+      reviewNote: '',
+      failureReason: '',
+      remediation: ''
+    });
+
+    closeCreateDialog();
+    state.query = '';
+    state.filter = 'all';
+    syncSearchUi();
+    renderAll();
+    requestAnimationFrame(() => {
+      if (!focusTask(id)) focusFilter('all');
+    });
+    showToast(`已创建 ${id}，任务进入待执行。`, 'success');
+  }
+
+  function clearQuery() {
+    state.query = '';
+    syncSearchUi();
+    renderChips();
+    renderTaskViews();
+  }
+
+  function clearAllFilters() {
+    state.query = '';
+    state.filter = 'all';
+    syncSearchUi();
+    renderChips();
+    renderTaskViews();
+    els.taskSearch.focus();
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (error) {
+        // Fall through to the local selection fallback.
+      }
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-1000px';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+      copied = document.execCommand('copy');
+    } catch (error) {
+      copied = false;
+    }
+    textarea.remove();
+    return copied;
+  }
+
+  async function copyCommand(button) {
+    const task = getTask(state.drawerTaskId);
+    if (!task || !task.verifyCommand) return;
+    button.disabled = true;
+    try {
+      const copied = await copyText(task.verifyCommand);
+      if (!copied) throw new Error('copy failed');
+      button.textContent = '已复制';
+      showToast('验证命令已复制。', 'success');
+    } catch (error) {
+      button.textContent = '复制失败';
+      showToast('复制失败，请手动选择命令。', 'failure');
+    }
+    window.setTimeout(() => {
+      button.disabled = false;
+      button.textContent = '复制';
+    }, 1600);
+  }
+
+  function bindEvents() {
+    els.changeButton.addEventListener('click', event => {
+      event.stopPropagation();
+      toggleChangeMenu();
+    });
+
+    els.changeMenuList.addEventListener('click', event => {
+      const option = event.target.closest('[data-change-id]');
+      if (option) switchChange(option.dataset.changeId);
+    });
+
+    els.changeMenu.addEventListener('keydown', event => {
+      const options = Array.from(els.changeMenu.querySelectorAll('[role="menuitemradio"]'));
+      const currentIndex = options.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        const nextIndex = currentIndex < 0
+          ? 0
+          : (currentIndex + direction + options.length) % options.length;
+        options[nextIndex]?.focus();
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        options[0]?.focus();
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        options[options.length - 1]?.focus();
+      }
+    });
+
+    els.changeMenu.addEventListener('focusout', event => {
+      if (!els.changeMenu.hidden && event.relatedTarget &&
+          !els.changeMenu.contains(event.relatedTarget) &&
+          event.relatedTarget !== els.changeButton) {
+        closeChangeMenu(false);
+      }
+    });
+
+    document.addEventListener('click', event => {
+      if (!els.changeMenu.hidden && !event.target.closest('.change-picker')) {
+        closeChangeMenu(false);
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !els.changeMenu.hidden) {
+        event.preventDefault();
+        closeChangeMenu(true);
+      }
+    });
+
+    els.taskSearch.addEventListener('input', () => {
+      state.query = els.taskSearch.value;
+      els.clearSearch.hidden = state.query.length === 0;
+      renderChips();
+      renderTaskViews();
+    });
+
+    els.taskSearch.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && els.taskSearch.value) {
+        event.preventDefault();
+        clearQuery();
+      }
+    });
+
+    els.clearSearch.addEventListener('click', () => {
+      clearQuery();
+      els.taskSearch.focus();
+    });
+
+    els.filterChips.addEventListener('click', event => {
+      const chip = event.target.closest('[data-filter]');
+      if (!chip) return;
+      state.filter = chip.dataset.filter;
+      renderChips();
+      renderTaskViews();
+      requestAnimationFrame(() => focusFilter(state.filter));
+    });
+
+    els.viewSwitch.addEventListener('click', event => {
+      const button = event.target.closest('[data-view]');
+      if (!button) return;
+      state.view = button.dataset.view;
+      renderTaskViews();
+      requestAnimationFrame(() => {
+        els.viewSwitch.querySelector(`[data-view="${state.view}"]`)?.focus();
+      });
+    });
+
+    els.reviewJump.addEventListener('click', () => {
+      state.query = '';
+      state.filter = 'review';
+      syncSearchUi();
+      renderChips();
+      renderTaskViews();
+      const firstReview = getFilteredTasks()[0];
+      requestAnimationFrame(() => {
+        if (!firstReview || !focusTask(firstReview.id)) focusFilter('review');
+      });
+    });
+
+    els.emptyCreate.addEventListener('click', openCreateDialog);
+    els.clearFilters.addEventListener('click', clearAllFilters);
+
+    els.boardView.addEventListener('keydown', event => {
+      const card = event.target.closest('.card-main');
+      if (!card || (event.key !== 'Enter' && event.key !== ' ')) return;
+      event.preventDefault();
+      openDrawer(card.dataset.openTask, card);
+    });
+
+    els.taskTableBody.addEventListener('click', event => {
+      if (event.target.closest('button')) return;
+      const row = event.target.closest('tr[data-row-id]');
+      if (!row) return;
+      const trigger = row.querySelector('[data-open-task]');
+      openDrawer(row.dataset.rowId, trigger || row);
+    });
+
+    els.taskTableBody.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const row = event.target.closest('tr[data-row-id]');
+      if (!row || event.target.closest('button')) return;
+      event.preventDefault();
+      const trigger = row.querySelector('[data-open-task]');
+      openDrawer(row.dataset.rowId, trigger || row);
+    });
+
+    els.drawerClose.addEventListener('click', closeDrawer);
+
+    els.taskDialog.addEventListener('click', event => {
+      if (event.target === els.taskDialog) closeDrawer();
+    });
+
+    els.taskDialog.addEventListener('close', () => {
+      document.body.classList.remove('drawer-open');
+      state.drawerTaskId = null;
+      const taskId = lastDrawerTaskId;
+      requestAnimationFrame(() => {
+        if (taskId && focusTask(taskId)) return;
+        if (lastDrawerTrigger && lastDrawerTrigger.isConnected) {
+          lastDrawerTrigger.focus();
+          return;
+        }
+        els.taskSearch.focus();
+      });
+    });
+
+    els.createClose.addEventListener('click', closeCreateDialog);
+    els.createCancel.addEventListener('click', closeCreateDialog);
+    els.createSubmit.addEventListener('click', createTask);
+
+    els.createDialog.addEventListener('click', event => {
+      if (event.target === els.createDialog) closeCreateDialog();
+    });
+
+    els.createForm.addEventListener('submit', event => {
+      event.preventDefault();
+      createTask();
+    });
+
+    els.createForm.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && event.target.matches('input')) {
+        event.preventDefault();
+        createTask();
+      }
+    });
+
+    els.newTaskTitle.addEventListener('input', () => {
+      if (!els.newTaskTitleError.hidden) setTitleError(false);
+    });
+
+    els.newTaskTitle.addEventListener('blur', () => {
+      if (!els.newTaskTitle.value.trim()) setTitleError(true);
+    });
+
+    document.addEventListener('click', event => {
+      const copyButton = event.target.closest('[data-copy-command]');
+      if (copyButton) {
+        event.preventDefault();
+        copyCommand(copyButton);
+        return;
+      }
+
+      const confirmButton = event.target.closest('[data-confirm-task]');
+      if (confirmButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        confirmTask(confirmButton.dataset.confirmTask);
+        return;
+      }
+
+      const closeButton = event.target.closest('[data-close-drawer]');
+      if (closeButton) {
+        event.preventDefault();
+        closeDrawer();
+        return;
+      }
+
+      const openButton = event.target.closest('[data-open-task]');
+      if (openButton) {
+        event.preventDefault();
+        openDrawer(openButton.dataset.openTask, openButton);
+      }
+    });
+  }
+
+  bindEvents();
+  syncSearchUi();
+  renderAll();
+})();
+</script>
+</body>
+</html>

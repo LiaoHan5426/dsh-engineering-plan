@@ -34,7 +34,7 @@ const skillDescriptions = {
   'architecture-design': '依据实际代码与运行契约设计模块边界、接口、数据流和迁移方案，保存架构决策与依赖任务。',
   'engineering-review': '评审工程规划或实施结果，核对来源、任务依赖、版本与实际验证证据，记录问题供人工决策。',
 };
-const actions = ['list', 'create', 'get', 'save', 'amendTask', 'transition', 'evidence', 'context', 'export', 'verificationRuns', 'dispatchRuns', 'gateStatus', 'readyTasks'];
+const actions = ['list', 'create', 'get', 'save', 'amendTask', 'transition', 'evidence', 'opinion', 'resolveOpinion', 'confirm', 'context', 'export', 'verificationRuns', 'dispatchRuns', 'gateStatus', 'readyTasks'];
 const str = { type: 'string' };
 const strings = { type: 'array', items: str };
 const task = {
@@ -71,9 +71,21 @@ export const parameters = {
       diagrams: { type: 'object', additionalProperties: false, properties: Object.fromEntries(['architecture', 'sequence', 'data-flow'].map(k => [k, str])) },
       tasks: { type: 'array', items: task },
       references: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { id: str, title: str, source: str, kind: { type: 'string', enum: ['reference', 'verified', 'assumption'] }, note: str }, required: ['id', 'title', 'source', 'kind', 'note'] } },
+      prototypes: { type: 'array', description: 'UI prototype deliverables for this plan: workspace-relative paths only. The plan version is assigned by the store.', items: { type: 'object', additionalProperties: false, properties: { pageId: str, title: str, htmlPath: str, screenshotPath: str, note: str }, required: ['pageId', 'title'] } },
     } },
     runId: { type: 'string', description: 'Optional run identifier for verificationRuns or dispatchRuns; omit to list runs. Both actions require changeId.' },
     taskId: str, status: { type: 'string', enum: ['pending', 'running', 'verifying', 'blocked', 'failed', 'awaiting-review', 'completed', 'cancelled'] },
+    scope: {
+      type: 'object', additionalProperties: false,
+      description: 'What part of the plan an opinion is about: a planning section, a document, a diagram, one task, or the whole change. The key must name something that exists in the current plan version.',
+      properties: { kind: { type: 'string', enum: ['change', 'section', 'document', 'task', 'diagram'] }, key: str },
+      required: ['kind', 'key'],
+    },
+    body: { type: 'string', description: 'Opinion text: what should change and why. Recorded as an open review note on the current plan version; it does not modify the plan or lock a version.' },
+    opinionId: str,
+    resolution: { type: 'string', description: 'How the opinion was addressed, written when a human closes it.' },
+    criteria: { ...strings, description: 'Acceptance criteria this confirmation covers. Omit to confirm every criterion of the task.' },
+    note: str,
     taskPatch: { type: 'object', additionalProperties: false, description: 'Fields to change on one task of the current plan version. Discovery during execution changes the task without invalidating the approved plan; changing acceptanceCriteria drops that task evidence and returns a verifying task to running.', properties: {
       title: str, description: str, dependencies: strings, expectedFiles: strings, acceptanceCriteria: strings, verificationCommands: strings,
       affectedModules: strings, executor: { type: 'string', enum: ['local', 'subagent', 'external'] },
@@ -114,8 +126,8 @@ export function createOperations(ctx, admitted = (agent, signal) => admittedWork
     const actionDescriptor = Object.getOwnPropertyDescriptor(input, 'action');
     if (!actionDescriptor) fail('ENGINEERING_UNKNOWN_ACTION');
     if (!Object.hasOwn(actionDescriptor, 'value') || !actionDescriptor.enumerable) fail('ENGINEERING_INVALID_INPUT');
-    if (kind !== 'user' && ['approve', 'replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun', 'terminateRun'].includes(input.action)) fail('ENGINEERING_HUMAN_APPROVAL_REQUIRED');
-    if (![...actions, 'approve', 'replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun', 'terminateRun'].includes(input.action)) fail('ENGINEERING_UNKNOWN_ACTION');
+    if (kind !== 'user' && ['approve', 'replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun', 'terminateRun', 'resolveOpinion', 'confirm'].includes(input.action)) fail('ENGINEERING_HUMAN_APPROVAL_REQUIRED');
+    if (![...actions, 'approve', 'replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun', 'terminateRun', 'resolveOpinion', 'confirm'].includes(input.action)) fail('ENGINEERING_UNKNOWN_ACTION');
     if (signal?.aborted) fail('ENGINEERING_CANCELLED');
     const root = await admitted(agent, signal);
     let store = stores.get(root);
@@ -281,6 +293,42 @@ export function apply(ctx) {
     isConcurrencySafe: () => false,
   }));
   let mermaidAsset;
+  // Read-only workbench data uses a Remote service, so loading a view never appends command events.
+  if (typeof ctx.provide === 'function') {
+    class EngineeringReader {
+      constructor() {
+        this.ctx = ctx;
+        this.typertRemote = Object.freeze({
+          service: this, serviceKey: 'engineeringReader', namespace: 'engineeringReader',
+        });
+      }
+      async query(agent, input, signal) {
+        if (!input || !['list', 'get', 'context', 'gateStatus', 'readyTasks',
+          'verificationRuns', 'dispatchRuns', 'mermaidAsset'].includes(input.action))
+          fail('INVALID_INPUT');
+        signal.throwIfAborted();
+        if (input.action === 'mermaidAsset') {
+          await admittedWorkspace(ctx, agent, signal);
+          const { offset } = input;
+          if (!Number.isSafeInteger(offset) || offset < 0 || offset >= 32 || Object.keys(input).length !== 2)
+            fail('INVALID_INPUT');
+          mermaidAsset ??= readFileSync(new URL('./assets/mermaid-11.17.2.min.js', import.meta.url), 'utf8');
+          const end = (offset + 1) * 256 * 1024;
+          return { chunk: mermaidAsset.slice(offset * 256 * 1024, end), done: end >= mermaidAsset.length };
+        }
+        return execute(input, agent, 'user', signal);
+      }
+    }
+    Object.defineProperty(EngineeringReader.prototype,
+      '@deepseek-ai/dsh-typert-protocol/remote-methods', {
+        value: { version: 1, methods: [{
+          method: 'query', invocation: { kind: 'direct' },
+          resources: { session: (agent) => agent },
+        }] },
+      });
+    ctx.provide('engineeringReader', new EngineeringReader());
+  }
+
   ctx.effect(() => ctx.commands.register({
     name: 'engineering',
     description: '工程研发：管理规划、任务、证据；工作台中的评审仅由用户确认。',
@@ -299,19 +347,19 @@ export function apply(ctx) {
           const size = 256 * 1024;
           const end = (offset + 1) * size;
           return { kind: 'success', text: JSON.stringify({
-            chunk: mermaidAsset.slice(offset * size, end), done: end >= mermaidAsset.length,
+            action: 'mermaidAsset', chunk: mermaidAsset.slice(offset * size, end), done: end >= mermaidAsset.length,
           }) };
         }
         if (input && input.action === 'cancelRun') {
           const result = await cancelRun(ctx, invocation.agent, invocation.signal, input, hostInstanceId);
-          return { kind: 'success', text: JSON.stringify(result) };
+          return { kind: 'success', text: JSON.stringify({ ...result, action: input.action }) };
         }
         if (input && input.action === 'terminateRun') {
           const result = await terminateRun(ctx, invocation.agent, invocation.signal, input, hostInstanceId);
-          return { kind: 'success', text: JSON.stringify(result) };
+          return { kind: 'success', text: JSON.stringify({ ...result, action: input.action }) };
         }
         const result = await execute(input, invocation.agent, 'user', invocation.signal);
-        return { kind: 'success', text: JSON.stringify(result) };
+        return { kind: 'success', text: JSON.stringify({ ...result, action: input.action }) };
       } catch (error) {
         const code = error.code || 'ENGINEERING_ERROR';
         const text = error.message === code ? code : `${code}: ${error.message}`;
