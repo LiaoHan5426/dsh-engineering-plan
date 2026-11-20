@@ -53,9 +53,9 @@ assert.ok(end > start, 'runtimeDirty end not found');
 const runtimeExpression = source.slice(start, end).trim().replace(/^const runtimeDirty =\s*/, '').replace(/;$/, '');
 const runtimeDirty = (patch = {}) => Function(
   'transitionDirty', 'evidenceDirty', 'delivery', 'resolution', 'dispatchResolution',
-  'cancelRunningDirty', 'cancelRunning', 'abandonmentDirty', 'abandonment', 'change',
+  'cancelRunningDirty', 'cancelRunning', 'abandonmentDirty', 'abandonment', 'termination', 'change',
   `return (${runtimeExpression});`)(
-  false, false, {}, {}, {}, () => false, {}, abandonmentDirty, patch.abandonment || {}, patch.change || { id: 'a' });
+  false, false, {}, {}, {}, () => false, {}, abandonmentDirty, patch.abandonment || {}, patch.termination || {}, patch.change || { id: 'a' });
 
 test('the abandonment draft joins the shared unsaved-input protection', () => {
   const form = { key: key('a', 'verification', 'r1', 3), reason: 'flaky', confirmed: true };

@@ -52,7 +52,14 @@
 | `starting` / `running` | `cancelRun` | 有 `jobId`，且该句柄仍在当前进程的 jobs 注册表里；只调用原生 `jobs.kill`，终态由运行器自己结算 |
 | `unknown` | `resolveUnknown` / `resolveDispatchUnknown` | 人明确声明「子 Agent、所有后代及相关进程均已停止」后结案 |
 
-仍缺的一档：**`starting`/`running` 但 job 句柄已不在当前进程的注册表里**（进程重启过、或该 job 从未在本次进程启动）。此时 `jobs.kill` 抛 `JOB_NOT_FOUND`，插件返回 `ENGINEERING_RUN_EXECUTOR_GONE` 并保持记录原状——没有终止证据，不能凭空把 `running` 写成 `cancelled` 或 `unknown`。手动删 `runs/*.json` 仍会绕过历史追加，因此不推荐。
+已补齐的一档：**`starting`/`running` 但 job 句柄已不在当前进程的注册表里**（进程重启过、或该 job 从未在本次进程启动）。
+此时 `cancelRun` 抛 `JOB_NOT_FOUND` 并返回 `ENGINEERING_RUN_EXECUTOR_GONE`；改用人工动作 `terminateRun`（`/engineering` 命令，不在模型工具枚举里）：
+Host 先向 jobs 注册表求证「本进程不可触达」（若 `kill` 返回 `requested`，说明句柄还在，直接拒绝并提示改用 `cancelRun`），
+再由用户填写终止理由、核实依据、核查资料与确认项；core 把这些记为 `run-terminated-unattached` 历史并把运行结算为 `cancelled`。
+
+这一刻意保留的限制：**注册表是进程级的**。`JOB_NOT_FOUND` 只证明本进程没有该句柄，不能证明别的宿主进程里那个子 Agent 已经停止，
+因此插件不写「已终止」这种事实陈述，只记录「某人在某时以某依据确认终止」；这也是该动作只对人类开放、且必须带核实依据的原因。
+人工声明若与事实不符，记录里的 `terminationEvidence` 会把责任指回填写者，而不是被插件伪装成客观观测。
 
 自动恢复（`recover`）仍无调用点，且不应仅凭「实例不同」「句柄缺失」或「超时」就把 active 改判 unknown：句柄缺失说明进程内没有执行者，但也没有证明子 Agent 已停止。
 
@@ -64,7 +71,7 @@
 - `src/verification-runner.js` 在预留后再次核对工作区，用 `ctx.shell.resolve/execute` 和 `ctx.jobs.start` 启动单命令。job 关联持久化后返回 jobId/runId，完成、取消和失败由 jobs 跟踪；持久化失败保留失败语义。
 - `src/verification-store.js` 将命令/版本/会话/Host 快照、jobId、run revision、输出与终态写入 `runs/<run-id>.json`，支持原子写入、跨进程幂等与 CAS，终态不可改写。`src/verification-result.js` 区分 succeeded、failed、cancelled、timed_out、error、unknown；缺失生命周期事实即使 exitCode 为 0 也不算成功。
 - `reserved/starting/running` 及未人工结案的 unknown 阻止同任务新验证/transition 和变更 save/replan，包括历史计划版本的 run。人工 `resolveUnknown` 校验 change/run 双 revision，以理由追加历史并解除该 unknown 的 blocker；原 run 仍是 unknown，不改变任务、验收结论或执行命令。
-- store 虽有 `recover` 方法，当前 Host/tool/UI 没有自动调用它。旧 Host 的 active 记录不会仅凭实例不同或超时就自动变成 unknown；`abandonRun` 只接受无 `jobId` 的 `reserved`，`cancelRun` 只接受本宿主实例的 `starting`/`running`，跨宿主的 active 仍无出口（见上文三档表）。
+- store 虽有 `recover` 方法，当前 Host/tool/UI 没有自动调用它（`terminateRun` 是人工动作，不是自动恢复）。旧 Host 的 active 记录不会仅凭实例不同或超时就自动变成 unknown；`abandonRun` 只接受无 `jobId` 的 `reserved`，`cancelRun` 只接受本宿主实例的 `starting`/`running`，跨宿主的 active 仍无出口（见上文三档表）。
 - `client.js` 通过 `verificationRuns` 读取真实记录，显示运行版本与当前版本、状态、退出码、输出及截断信息。选择已批准 verifying 任务的保存命令会生成含稳定 requestId 的完整草稿；用户发送后才进入工具流程。unknown 结案入口要求核查确认与理由。
 
 单命令执行记录不自动转成 criterion passed，不自动完成任务，也不是自动开发 executor。原方案的分阶段开发派发、失败恢复、工作树隔离、跨任务基线失效、独立用户交付验收、外部 Agent/知识服务及多包架构仍是未完成目标；本次增量不缩小原目标。0.3.0 已安装启用，真实未审批门禁及 smoke 计划页面已验证；真实正向 tools pipeline 与有数据 UI 全流程尚待验收。

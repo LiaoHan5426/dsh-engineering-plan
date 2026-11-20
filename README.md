@@ -172,7 +172,7 @@ npm run check
 node scripts/validate-package.mjs
 ```
 
-当前完整套件为 826 项（825 通过、1 项可选真实 Chromium 测试默认跳过），`node --test --test-reporter=dot tests/*.test.js` 退出码 0；更早的 242 项、197 项、90 项数字均为当时阶段的历史结果。执行适配集成测试中的subagents/jobs/shell使用模拟服务，测试数量不代表真实链路验收。真实 engineering_dispatch 未审批拦截已验证，前后派发记录为空。0.3.0 已安装启用；真实页面四页签、smoke 计划创建/读取、质量矩阵、运行记录、导出 14 文件、恢复上下文、状态流转选项、并行分支 DAG、三张 Mermaid 图与英文界面均已按 DOM 读数核实，浅色外观下的状态色对比度缺陷已修复。实际 engineering_verify 对未审批 smoke 返回人工批准门禁错误、runs 为空；已批准 v1 的派发 returned、验证因 PowerShell 无 printf 失败并如实记录。任务结构体在 0.3.0 已支持 `affectedModules`/`executor`/`requiredApproval`/`maxRetries` 四个规划元数据字段，界面可编辑、导出进 `tasks.json`；它们不驱动任何自动执行或重试；超长模块名与越界重试次数在表单内即时提示并禁用「应用到草稿」，不会被静默保存或悄悄夹取。正向闭环与像素级视觉仍待验收。详细结果见 [验证记录](docs/VERIFICATION.md)，原始需求映射见 [验收跟踪](docs/UI-ACCEPTANCE.md)。
+当前完整套件为 838 项（837 通过、1 项可选真实 Chromium 测试默认跳过），`node --test --test-reporter=dot tests/*.test.js` 退出码 0；更早的 242 项、197 项、90 项数字均为当时阶段的历史结果。执行适配集成测试中的subagents/jobs/shell使用模拟服务，测试数量不代表真实链路验收。真实 engineering_dispatch 未审批拦截已验证，前后派发记录为空。0.3.0 已安装启用；真实页面四页签、smoke 计划创建/读取、质量矩阵、运行记录、导出 14 文件、恢复上下文、状态流转选项、并行分支 DAG、三张 Mermaid 图与英文界面均已按 DOM 读数核实，浅色外观下的状态色对比度缺陷已修复。实际 engineering_verify 对未审批 smoke 返回人工批准门禁错误、runs 为空；已批准 v1 的派发 returned、验证因 PowerShell 无 printf 失败并如实记录。任务结构体在 0.3.0 已支持 `affectedModules`/`executor`/`requiredApproval`/`maxRetries` 四个规划元数据字段，界面可编辑、导出进 `tasks.json`；它们不驱动任何自动执行或重试；超长模块名与越界重试次数在表单内即时提示并禁用「应用到草稿」，不会被静默保存或悄悄夹取。正向闭环与像素级视觉仍待验收。详细结果见 [验证记录](docs/VERIFICATION.md)，原始需求映射见 [验收跟踪](docs/UI-ACCEPTANCE.md)。
 
 - `src/core.js`：数据契约校验、存储、版本、依赖与证据状态机。
 - `index.js`：Host 工具和人工命令适配，共用同一领域操作。

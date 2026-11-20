@@ -3,13 +3,14 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isLockContention, lockFileState, lockHolder, staleLockMessage, cleanTemporaries, renameWithRetry } from './lock-retry.js';
+import { readTerminationEvidence } from './termination-evidence.js';
 
 export const MAX_OUTPUT_BYTES = 64 * 1024;
 const MAX_RECORD_BYTES = 1024 * 1024;
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'timed_out', 'error', 'unknown']);
 const STATES = new Set(['reserved', 'starting', 'running', ...TERMINAL]);
 const SNAPSHOT = ['changeId', 'taskId', 'planVersion', 'commandIndex', 'command', 'requestId', 'hostInstanceId', 'ownerSessionId'];
-const PATCH = ['expectedRevision', 'state', 'pid', 'exitCode', 'signal', 'stdout', 'stderr', 'error', 'reason', 'truncated', 'startedAt', 'finishedAt', 'timedOut', 'aborted', 'sandbox', 'jobId', 'execution', 'abandoned'];
+const PATCH = ['expectedRevision', 'state', 'pid', 'exitCode', 'signal', 'stdout', 'stderr', 'error', 'reason', 'truncated', 'startedAt', 'finishedAt', 'timedOut', 'aborted', 'sandbox', 'jobId', 'execution', 'abandoned', 'terminationEvidence'];
 const FIELDS = [...SNAPSHOT, ...PATCH.filter(k => k !== 'expectedRevision'), 'schemaVersion', 'runId', 'revision', 'createdAt', 'updatedAt'];
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
 const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
@@ -77,6 +78,12 @@ function hostFields(v) {
     text(v.abandoned.actor.id, 300);
     text(v.abandoned.reason);
     timestamp(v.abandoned.at);
+  }
+  if ('terminationEvidence' in v) {
+    // Only meaningful together with a cancellation attestation; a stray attestation would otherwise be
+    // stored on a run that keeps running, which reads as "terminated" to anyone scanning the record.
+    if (v.state !== 'cancelled' || !('abandoned' in v)) fail('INVALID_INPUT', 'Termination evidence requires a cancelled run with an attestation');
+    try { readTerminationEvidence(v.terminationEvidence); } catch (error) { fail('INVALID_INPUT', error.message || 'Invalid termination evidence'); }
   }
 }
 function invalidSuccess(v) { return v.exitCode !== 0 || v.signal || v.error || v.timedOut !== false || v.aborted !== false || v.sandbox?.denied || v.sandbox?.runnerFailed; }
@@ -225,6 +232,19 @@ export class VerificationRunStore {
         // that no process was ever launched. That means no live process, pid, output or exit result can be orphaned;
         // this branch still requires the same host-instance CAS, revision CAS and atomic rename as every other update.
         if (run.state === 'reserved' && patch.state === 'cancelled' && !run.jobId && 'abandoned' in patch) allowed.push('cancelled');
+        // Second terminal escape, for a run that did start but whose job handle is gone (see terminateRun in core):
+        // the Host has already established that this process cannot reach the job, and the caller supplies a human
+        // termination attestation. The record keeps jobId and gains that attestation, so the release is auditable
+        // rather than silently dropping a live-looking record.
+        // A cancellation that carries a human attestation must also carry the attestation's substance:
+        // otherwise an operator statement of "abandoned" would silently stand in for termination evidence.
+        // Runner-settled cancellations never carry `abandoned`, so they are unaffected.
+        if (['starting', 'running'].includes(run.state) && patch.state === 'cancelled'
+          && 'abandoned' in patch && !('terminationEvidence' in patch)) {
+          fail('INVALID_TRANSITION', 'Cancelling a started run with an attestation requires termination evidence');
+        }
+        if (['starting', 'running'].includes(run.state) && patch.state === 'cancelled'
+          && run.jobId && 'abandoned' in patch && 'terminationEvidence' in patch) allowed.push('cancelled');
         if (!allowed.includes(patch.state)) fail('INVALID_TRANSITION', 'Invalid verification run transition');
       }
       if ('execution' in patch) {

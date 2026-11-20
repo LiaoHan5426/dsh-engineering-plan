@@ -9,6 +9,7 @@ import { resolveDispatchRequest } from './dispatch-request.js';
 import { GitObservationStore } from './git-observation-store.js';
 import { compareGitObservations } from './git-comparison.js';
 import { auditScope } from './scope-audit.js';
+import { readTerminationEvidence } from './termination-evidence.js';
 
 const DOCS = ['proposal', 'requirements', 'architecture', 'implementation', 'impact-analysis', 'acceptance', 'decisions', 'findings'];
 const DIAGRAMS = ['architecture', 'sequence', 'data-flow'];
@@ -266,20 +267,11 @@ function assertNoDispatchBlockers(change, runs, taskId) {
   if (blockers.length) fail('DISPATCH_RUN_BLOCKED', `Dispatch runs require completion or explicit human resolution: ${blockers.map(run => `${run.runId} (${run.state})`).join(', ')}`);
 }
 function terminationEvidence(value) {
-  exactData(value, ['confirmed', 'checkedAt', 'scope', 'basis', 'references'], 'termination evidence');
-  if (value.confirmed !== true || value.scope !== 'child-and-descendants-and-processes') fail('INVALID_INPUT', 'Invalid termination confirmation or scope');
-  if (typeof value.checkedAt !== 'string' || !Number.isFinite(Date.parse(value.checkedAt)) || new Date(value.checkedAt).toISOString() !== value.checkedAt) fail('INVALID_INPUT', 'Invalid checkedAt timestamp');
-  text(value.basis, 'termination basis', 4000, true);
-  const refs = value.references;
-  if (!Array.isArray(refs) || Object.getPrototypeOf(refs) !== Array.prototype || refs.length > 200 || Reflect.ownKeys(refs).length !== refs.length + 1) fail('INVALID_INPUT', 'Invalid termination references');
-  for (let i = 0; i < refs.length; i++) {
-    const descriptor = Object.getOwnPropertyDescriptor(refs, String(i));
-    if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable) fail('INVALID_INPUT', 'Invalid termination reference');
-    text(descriptor.value, 'termination reference', 4000, true);
-    if (descriptor.value.includes('\u0000')) fail('INVALID_INPUT', 'Invalid termination reference');
+  try {
+    return readTerminationEvidence(value);
+  } catch (error) {
+    fail('INVALID_INPUT', error.message || 'Invalid termination evidence');
   }
-  if (value.basis.includes('\u0000')) fail('INVALID_INPUT', 'Invalid termination basis');
-  return clone(value);
 }
 function exactData(value, fields, name) {
   if (!plain(value) || Reflect.ownKeys(value).length !== fields.length || fields.some(key =>
@@ -521,6 +513,7 @@ const actions = {
   resolveUnknown: ['action', 'changeId', 'expectedRevision', 'runId', 'expectedRunRevision', 'reason'],
   resolveDispatchUnknown: ['action', 'changeId', 'expectedRevision', 'runId', 'expectedRunRevision', 'reason', 'terminationEvidence'],
   abandonRun: ['action', 'changeId', 'kind', 'runId', 'expectedRevision', 'expectedRunRevision', 'reason'],
+  terminateRun: ['action', 'changeId', 'kind', 'runId', 'expectedRevision', 'expectedRunRevision', 'reason', 'terminationEvidence'],
   transition: ['action', 'changeId', 'expectedRevision', 'taskId', 'status', 'reason'],
   evidence: ['action', 'changeId', 'expectedRevision', 'taskId', 'criterion', 'outcome', 'note', 'artifact'],
   context: ['action', 'changeId'], export: ['action', 'changeId', 'expectedRevision'],
@@ -641,6 +634,12 @@ export class EngineeringStore {
       text(input.reason, 'abandonment reason', 4000, true);
       if (input.reason.includes('\u0000')) fail('INVALID_INPUT', 'Invalid abandonment reason');
     }
+    if (input.action === 'terminateRun') {
+      if (!['dispatch', 'verification'].includes(input.kind)) fail('INVALID_INPUT', 'Invalid run kind');
+      text(input.reason, 'termination reason', 4000, true);
+      if (input.reason.includes('\u0000')) fail('INVALID_INPUT', 'Invalid termination reason');
+      terminationEvidence(input.terminationEvidence);
+    }
     keys(input, actions[input.action], 'action');
     keys(actor, ['kind', 'id'], 'actor');
     if (!['user', 'agent'].includes(actor.kind)) fail('INVALID_ACTOR', 'Invalid actor kind');
@@ -709,7 +708,7 @@ export class EngineeringStore {
         if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1) fail('REVISION_REQUIRED', 'expectedRevision is required');
         if (input.expectedRevision !== s.revision) fail('REVISION_CONFLICT', 'State revision changed');
       }
-      if (['replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun'].includes(action) && actor.kind !== 'user') fail('FORBIDDEN', 'Only a user can perform this operation');
+      if (['replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun', 'terminateRun'].includes(action) && actor.kind !== 'user') fail('FORBIDDEN', 'Only a user can perform this operation');
       let verificationRuns = [], dispatchRuns = [];
       if (['save', 'replan', 'transition', 'acceptDelivery'].includes(action)) {
         verificationRuns = await new VerificationRunStore(this.root).list(id);
@@ -766,6 +765,27 @@ export class EngineeringStore {
         // planVersion stay untouched, so the same change can be saved, replanned or transitioned afterwards.
         s.history.push({ kind: 'run-abandoned', runKind, runId: cancelled.runId, runRevision: cancelled.revision,
           actor, reason, at });
+      }
+      if (action === 'terminateRun') {
+        // Human-only escape hatch for a run that reached starting/running but whose job is no longer
+        // attached in this process. The Host verifies that first (the jobs registry is process-local);
+        // this action records the human's termination attestation and closes the run as cancelled.
+        // It deliberately does not claim the process is gone: nothing here can observe that.
+        const runKind = input.kind, runs = runKind === 'dispatch' ? new DispatchRunStore(this.root) : new VerificationRunStore(this.root);
+        const run = await runs.get(id, identifier(input.runId));
+        if (run.changeId !== id) fail('CORRUPT_STATE', 'Run belongs to a different change');
+        if (!Number.isSafeInteger(input.expectedRunRevision) || input.expectedRunRevision < 1) fail('REVISION_REQUIRED', 'expectedRunRevision is required');
+        if (run.revision !== input.expectedRunRevision) fail('REVISION_CONFLICT', `${runKind === 'dispatch' ? 'Dispatch' : 'Verification'} run revision changed`);
+        if (!['starting', 'running'].includes(run.state)) fail('INVALID_STATE', 'Only a started run can be terminated this way');
+        if (!run.jobId) fail('INVALID_STATE', 'A run without a job never started; abandon it instead');
+        const at = new Date().toISOString(), reason = text(input.reason, 'termination reason', 4000, true);
+        const evidence = terminationEvidence(input.terminationEvidence);
+        const cancelled = await runs.update(id, run.runId, run.hostInstanceId,
+          { expectedRevision: run.revision, state: 'cancelled', reason, abandoned: { actor, reason, at }, terminationEvidence: evidence });
+        s.history.push({ kind: 'run-terminated-unattached', runKind, runId: cancelled.runId, runRevision: cancelled.revision,
+          taskId: run.taskId, planVersion: run.planVersion, jobId: run.jobId,
+          hostInstanceId: run.hostInstanceId, ownerSessionId: run.ownerSessionId,
+          childId: run.childId ?? null, actor, reason, terminationEvidence: evidence, at });
       }
       if (action === 'save') {
         if (!['draft', 'approved'].includes(s.status)) fail('PLAN_LOCKED', 'Plan has started');

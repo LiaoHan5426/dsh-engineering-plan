@@ -15,9 +15,10 @@ function actual(name, bindings = {}, indent = '    ', async = false) {
 }
 
 const abandonmentEligible = actual('abandonmentEligible');
+const terminationEligible = actual('terminationEligible');
 const abandonmentKey = actual('abandonmentKey');
 const abandonmentHistory = actual('abandonmentHistory');
-const strandedNotice = actual('strandedNotice', { abandonmentEligible });
+const strandedNotice = actual('strandedNotice', { abandonmentEligible, terminationEligible });
 const bindAbandonment = actual('bindAbandonment', { abandonmentKey });
 const abandonmentPayload = actual('abandonmentPayload',
   { abandonmentEligible, abandonmentKey, abandonmentHistory });
@@ -49,6 +50,9 @@ test('only a never-started reservation is eligible for abandonment', () => {
   assert.equal(abandonmentEligible(null), false);
 
   assert.equal(strandedNotice(record()), 'abandonRun');
+  // A started run whose job handle is present is releasable by a human attestation, not by abandonment.
+  assert.equal(strandedNotice(record({ state: 'starting', jobId: 'job-1' })), 'terminateRun');
+  assert.equal(strandedNotice(record({ state: 'running', jobId: 'job-1' })), 'terminateRun');
   assert.equal(strandedNotice(record({ state: 'starting' })), 'strandedNeedsEvidence');
   assert.equal(strandedNotice(record({ state: 'running' })), 'strandedNeedsEvidence');
   assert.equal(strandedNotice(record({ jobId: 'job-1' })), '');

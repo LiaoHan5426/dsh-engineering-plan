@@ -148,8 +148,8 @@ test('navigation guard includes dispatch runtime drafts independently from plan 
   const end = source.indexOf('          const edit =', start);
   const expression = source.slice(start, end).trim().replace(/^const runtimeDirty =\s*/, '').replace(/;$/, '');
   const dirty = forms => Function('transitionDirty', 'evidenceDirty', 'delivery', 'resolution', 'dispatchResolution',
-    'cancelRunningDirty', 'cancelRunning', 'abandonmentDirty', 'abandonment', 'change', `return (${expression});`)(
-    false, false, {}, {}, forms, () => false, {}, () => false, {}, { id: 'change' });
+    'cancelRunningDirty', 'cancelRunning', 'abandonmentDirty', 'abandonment', 'termination', 'change', `return (${expression});`)(
+    false, false, {}, {}, forms, () => false, {}, () => false, {}, {}, { id: 'change' });
   for (const value of [{ reason: 'r' }, { basis: 'b' }, { references: 'ref' }, { confirmed: true }]) assert.equal(dirty({ run: value }), true);
   assert.equal(dirty({}), false);
   let pending = 0, runs = 0;

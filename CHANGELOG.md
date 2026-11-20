@@ -17,6 +17,7 @@
 - 修复：「质量门禁」页签渲染崩溃（`ReferenceError: Cannot access 'selectedTask' before initialization`）——第 106 轮插入的 `postMortem` 读取了下一行才声明的 `selectedTask`。
 - 新增 `scripts/check-declaration-order.mjs` 与 `tests/declaration-order.test.js`（5 项），并入 `npm run check`。
 - 记录：浅色主题下「质量门禁」页对比度实测全部通过 AA（正文 18.9:1、次要文字 5.8:1）；宿主壳层页签 4.23:1 属宿主问题。
+- 新增人工动作 `terminateRun`：释放「已启动但 job 句柄不在本进程」的运行。Host 先用 jobs 注册表证伪可触达性，用户填写核实依据后记账为 `run-terminated-unattached`；带 `abandoned` 而没有 `terminationEvidence` 的取消被拒绝。
 ## 0.3.0
 
 ### 观测记录的崩溃注入

@@ -1688,3 +1688,23 @@ client.js:22 slot entry crashed in 'conversation.view': ReferenceError: Cannot a
 本轮未改代码与测试。
 
 全套件 826 项。
+
+## 第 144 轮：跨宿主残留运行的人工释放出口
+
+**问题**：`starting`/`running` 的运行若其 job 句柄已不在当前进程（应用重启、插件重载、或别的宿主实例创建），此前只有死路——`cancelRun` 报 `ENGINEERING_RUN_EXECUTOR_GONE`，`abandonRun` 只收 `reserved` 且无 `jobId`，于是 `save`/`transition`/`evidence`/`replan`/`acceptDelivery` 全被该 run 挡住，只能手删运行文件。
+
+**实现**：
+
+- `src/termination-evidence.js`：终止声明的唯一读取器（`confirmed`、`checkedAt`、`scope`、`basis`、`references` 严格校验），core 与两个 run store 共用——避免「store 收下的形状 core 不认」这类分叉。
+- `src/core.js`：新增人工动作 `terminateRun`（`kind`/`runId`/双 CAS/`reason`/`terminationEvidence`），只接受 `starting`/`running` 且必须有 `jobId`；写 `cancelled` 并追加历史 `run-terminated-unattached`（含 runId/runRevision/taskId/planVersion/jobId/hostInstanceId/ownerSessionId/childId/actor/reason/evidence/at）。
+- `src/dispatch-store.js`、`src/verification-store.js`：`PATCH` 接受 `terminationEvidence`，并新增一条许可（`starting`/`running` → `cancelled`，前提是同时带 `abandoned` 与 `terminationEvidence`）；另加反向规则——带 `abandoned` 却没带 `terminationEvidence` 的取消一律拒绝（`INVALID_TRANSITION`），防止「人说了句放弃」冒充终止证据。运行器自身的取消（无 `abandoned`）不受影响。
+- `index.js`：`terminateRun` 只走 `/engineering` 命令；先 `ctx.jobs.kill` 求证——返回 `requested` 说明句柄仍在本进程，拒绝并返回 `ENGINEERING_RUN_STILL_ATTACHED`（提示改用 `cancelRun`）；抛 `JOB_NOT_FOUND` 才继续，把动作交给 core 并以 `kind: 'user'` 记账。
+- `client.js`：`starting`/`running` 的运行在派发/验证区显示「确认终止（句柄不在本进程）」表单（理由 + 核实依据 + 核查资料 + 确认项，四项齐备才可提交），提交走 `/engineering`；已终止的记录显示人工终止摘要。
+
+**测试**：`tests/terminate-run.test.js` 7 项（终止后记录带证据与 jobId、历史条目、释放后可保存、拒绝 reserved/终态/无 jobId/伪造确认/旧修订/agent 身份、store 拒绝无证据的取消声明、Host 在句柄仍附着时拒绝且不改记录、Host 在句柄缺失时放行）；`tests/client-termination.test.js` 5 项（资格、payload 结构、缺理由/缺依据/未勾选/换修订即不成立、已终止不再提示、界面路由）。套件 826 → 838 项。
+
+**刻意不做的**：不自动把 active 改判 unknown，不重跑，不声称已观察到进程退出。`JOB_NOT_FOUND` 只证明本进程没有该句柄。
+
+本轮开始前套件为 826 项，本轮增至 838 项。
+
+全套件 838 项。

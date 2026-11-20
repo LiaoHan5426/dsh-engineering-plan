@@ -113,8 +113,8 @@ export function createOperations(ctx, admitted = (agent, signal) => admittedWork
     const actionDescriptor = Object.getOwnPropertyDescriptor(input, 'action');
     if (!actionDescriptor) fail('ENGINEERING_UNKNOWN_ACTION');
     if (!Object.hasOwn(actionDescriptor, 'value') || !actionDescriptor.enumerable) fail('ENGINEERING_INVALID_INPUT');
-    if (kind !== 'user' && ['approve', 'replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun'].includes(input.action)) fail('ENGINEERING_HUMAN_APPROVAL_REQUIRED');
-    if (![...actions, 'approve', 'replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun'].includes(input.action)) fail('ENGINEERING_UNKNOWN_ACTION');
+    if (kind !== 'user' && ['approve', 'replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun', 'terminateRun'].includes(input.action)) fail('ENGINEERING_HUMAN_APPROVAL_REQUIRED');
+    if (![...actions, 'approve', 'replan', 'resolveUnknown', 'resolveDispatchUnknown', 'acceptDelivery', 'abandonRun', 'terminateRun'].includes(input.action)) fail('ENGINEERING_UNKNOWN_ACTION');
     if (signal?.aborted) fail('ENGINEERING_CANCELLED');
     const root = await admitted(agent, signal);
     let store = stores.get(root);
@@ -183,6 +183,34 @@ export async function cancelRun(ctx, agent, signal, input, hostInstanceId) {
     outcome: kill === 'requested' ? 'terminating' : 'already-finished',
     sameHost,
   };
+}
+
+// 人工释放「已启动但句柄不在本进程」的运行：先向 jobs 注册表确认不可达，再由用户提供终止声明，
+// 最后由 core 记入历史并结算为 cancelled。插件不假装自己观察到进程已停——只记录人工核查。
+export async function terminateRun(ctx, agent, signal, input, hostInstanceId) {
+  const allowed = ['action', 'changeId', 'kind', 'runId', 'expectedRevision', 'expectedRunRevision', 'reason', 'terminationEvidence'];
+  if (Object.keys(input).some(key => !allowed.includes(key))) fail('ENGINEERING_INVALID_INPUT');
+  if (!input.changeId || typeof input.changeId !== 'string' || !input.runId || typeof input.runId !== 'string') fail('ENGINEERING_INVALID_INPUT');
+  if (!['verification', 'dispatch'].includes(input.kind)) fail('ENGINEERING_INVALID_INPUT');
+  const admitted = await admittedWorkspace(ctx, agent, signal);
+  const runs = input.kind === 'dispatch' ? new DispatchRunStore(admitted) : new VerificationRunStore(admitted);
+  const record = await runs.get(input.changeId, input.runId);
+  if (!['starting', 'running'].includes(record.state)) fail('ENGINEERING_RUN_NOT_RUNNING');
+  if (!record.jobId) fail('ENGINEERING_RUN_WITHOUT_JOB');
+  // 关键判据：句柄若仍在本进程注册表里，就不该走「无法触达」这条路，应当用 cancelRun 正常终止。
+  // 注册表是进程级的，因此这里只能证伪「本进程可触达」，不能证明别的宿主进程已死——后者靠人工声明。
+  const caller = typeof record.ownerSessionId === 'string' && record.ownerSessionId ? record.ownerSessionId : agent.id;
+  let kill;
+  try {
+    kill = ctx.jobs.kill(record.jobId, caller, input.reason);
+  } catch (error) {
+    if (error?.code === 'JOB_NOT_FOUND') kill = 'missing';
+    else throw error;
+  }
+  if (kill === 'requested') fail('ENGINEERING_RUN_STILL_ATTACHED');
+  const operations = createOperations(ctx, (a, s) => admittedWorkspace(ctx, a, s));
+  const result = await operations(input, agent, 'user', signal);
+  return { ...result, kill, sameHost: record.hostInstanceId === hostInstanceId };
 }
 
 export function codedError(error) {
@@ -283,6 +311,10 @@ export function apply(ctx) {
         const input = raw ? JSON.parse(raw) : { action: 'list' };
         if (input && input.action === 'cancelRun') {
           const result = await cancelRun(ctx, invocation.agent, invocation.signal, input, hostInstanceId);
+          return { kind: 'success', text: JSON.stringify(result) };
+        }
+        if (input && input.action === 'terminateRun') {
+          const result = await terminateRun(ctx, invocation.agent, invocation.signal, input, hostInstanceId);
           return { kind: 'success', text: JSON.stringify(result) };
         }
         const result = await execute(input, invocation.agent, 'user', invocation.signal);

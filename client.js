@@ -526,6 +526,17 @@ window.__ModuleLoader__.load({
         "已请求终止；运行记录由 runner 结算为 cancelled。",
         "Stop requested; the runner settles the run record as cancelled.",
       ],
+      errRunStillAttached: ["该运行的句柄仍在本进程里，请用「终止当前运行」而不是人工终止。", "This process still holds the run's handle; cancel it rather than terminating it by hand."],
+      terminateRun: ["确认终止（句柄不在本进程）", "Confirm termination (handle not in this process)"],
+      terminateHint: [
+        "这条运行已启动，但任务句柄不在当前进程里，无法按普通方式取消。只有在你已确认子 Agent 及其后代进程都已停止时，才填写下面的核实说明并终止；插件不会自行判断进程是否存活。",
+        "This run started, but its job handle is not in this process, so it cannot be cancelled normally. Fill in the check below only after you have confirmed the child agent and its descendant processes are gone; the plugin does not judge liveness itself.",
+      ],
+      terminateReason: ["终止理由（必填）", "Reason (required)"],
+      terminateBasis: ["核实依据（必填，写清你查了什么、看到什么）", "What you checked and saw (required)"],
+      terminateReferences: ["核查资料（每行一项，可留空）", "References (one per line, optional)"],
+      terminateConfirm: ["我已确认该子 Agent 及其后代进程均已停止。", "I confirm the child agent and its descendant processes have stopped."],
+      terminatedRecorded: ["已记录人工终止", "Termination recorded"],
       errRunExecutorGone: ["找不到该运行的执行句柄（应用可能重启过），记录不会被自动改写；请确认进程已不存在后由人工按 unknown 结案。", "This process no longer holds that run's executor handle, so the record is not rewritten; confirm the process is gone and close it as unknown by hand."],
       cancelRunningForeign: [
         "该运行由另一个宿主实例创建，本页面无法终止；请在创建它的宿主实例中操作。",
@@ -858,6 +869,7 @@ const ERROR_KEYS = {
   ENGINEERING_RUN_WITHOUT_JOB: "errRunWithoutJob",
   ENGINEERING_RUN_FOREIGN_HOST: "errRunForeignHost",
   ENGINEERING_RUN_EXECUTOR_GONE: "errRunExecutorGone",
+  ENGINEERING_RUN_STILL_ATTACHED: "errRunStillAttached",
   ENGINEERING_INPUT_TOO_LARGE: "errInputTooLarge",
   INCOMPLETE_PLAN: "planIncompleteError",
 };
@@ -1354,7 +1366,7 @@ return { compareGitObservations };
     }
     function strandedNotice(record) {
       if (!record) return "";
-      if (["starting", "running"].includes(record.state)) return "strandedNeedsEvidence";
+      if (["starting", "running"].includes(record.state)) return terminationEligible(record) ? "terminateRun" : "strandedNeedsEvidence";
       return abandonmentEligible(record) ? "abandonRun" : "";
     }
     function abandonmentKey(change, kind, record) {
@@ -1379,6 +1391,51 @@ return { compareGitObservations };
       return {
         action: "abandonRun", changeId: change.id, kind, runId: record.runId,
         expectedRevision: change.revision, expectedRunRevision: record.revision, reason: form.reason.trim(),
+      };
+    }
+    // A run that started but whose job handle is not in this process cannot be cancelled normally:
+    // cancelRun reports ENGINEERING_RUN_EXECUTOR_GONE. The human path is terminateRun, which records an
+    // attestation instead of pretending the plugin observed the process exit.
+    function terminationEligible(record) {
+      return !!record && ["starting", "running"].includes(record.state) &&
+        typeof record.jobId === "string" && record.jobId.length > 0;
+    }
+    function terminationKey(change, kind, record) {
+      return JSON.stringify(["terminate", change.id, kind, record.runId, record.revision]);
+    }
+    function bindTermination(form, change, kind, record) {
+      const key = terminationKey(change, kind, record);
+      const same = form?.key === key;
+      return {
+        key,
+        reason: same ? form.reason || "" : "",
+        basis: same ? form.basis || "" : "",
+        references: same ? form.references || "" : "",
+        confirmed: same && form.confirmed === true,
+      };
+    }
+    function terminationHistory(change, kind, record) {
+      return (change.history || []).find((entry) => entry.kind === "run-terminated-unattached" &&
+        entry.runKind === kind && entry.runId === record.runId && entry.actor?.kind === "user");
+    }
+    function terminationPayload(change, kind, record, form) {
+      if (!change || !record || record.changeId !== change.id || !["dispatch", "verification"].includes(kind) ||
+        !terminationEligible(record) ||
+        !Number.isSafeInteger(change.revision) || change.revision < 1 ||
+        !Number.isSafeInteger(record.revision) || record.revision < 1 ||
+        form?.key !== terminationKey(change, kind, record) ||
+        !form.reason?.trim() || !form.basis?.trim() || form.confirmed !== true ||
+        terminationHistory(change, kind, record)) return null;
+      const references = String(form.references || "").split("\n").map((line) => line.trim()).filter(Boolean);
+      return {
+        action: "terminateRun", changeId: change.id, kind, runId: record.runId,
+        expectedRevision: change.revision, expectedRunRevision: record.revision,
+        reason: form.reason.trim(),
+        terminationEvidence: {
+          confirmed: true, checkedAt: new Date().toISOString(),
+          scope: "child-and-descendants-and-processes",
+          basis: form.basis.trim(), references,
+        },
       };
     }
     // The Host instance that owns this page is never sent to the client, so the newest loaded run record
@@ -1885,6 +1942,7 @@ return { compareGitObservations };
           const [resolution, setResolution] = React.useState({});
           const [dispatchResolution, setDispatchResolution] = React.useState({});
           const [abandonment, setAbandonment] = React.useState({});
+          const [termination, setTermination] = React.useState({});
           // Human "stop this run" drafts, keyed by change + run kind + runId, plus the per-run submit error text.
           const [cancelRunning, setCancelRunning] = React.useState({});
           const [cancelErrors, setCancelErrors] = React.useState({});
@@ -1942,6 +2000,7 @@ return { compareGitObservations };
             Object.values(resolution).some(form => form.reason || form.confirmed) ||
             cancelRunningDirty(cancelRunning, change?.id) ||
             abandonmentDirty(abandonment, change?.id) ||
+            Object.keys(termination).length > 0 ||
             Object.values(dispatchResolution).some(form => form.reason || form.basis || form.references || form.confirmed);
           const edit = (patch) => {
             if (busy || !editable) return;
@@ -3640,6 +3699,50 @@ return { compareGitObservations };
             if (kind === "verification") await refreshRuns();
             else await refreshDispatchRuns();
           }
+          async function terminateStrandedRun(kind, record) {
+            const key = terminationKey(change, kind, record);
+            const payload = terminationPayload(change, kind, record, termination[key]);
+            // The payload is the single gate: started-but-unattached run, matched key, reason, basis, confirmation.
+            if (busy || !payload) return;
+            const data = await command(payload);
+            if (!mounted.current) return;
+            loadChange(data.change, { preserveRuntime: true, submitted: "terminateRun", terminatedKey: key });
+            setNotice(t("terminatedRecorded"));
+            await list();
+            if (!mounted.current) return;
+            if (kind === "verification") await refreshRuns();
+            else await refreshDispatchRuns();
+          }
+          function terminationSummary(entry) {
+            return h("div", { className: "ep-section" },
+              h("strong", null, t("terminatedRecorded")),
+              h("p", null, t("abandonActor"), ": ", entry.actor?.id || entry.actor?.kind || ""),
+              h("p", null, t("terminateReason"), ": ", entry.reason),
+              h("p", null, t("terminateBasis"), ": ", entry.terminationEvidence?.basis || ""),
+              h("p", null, t("abandonAt"), ": ", entry.at));
+          }
+          function terminationForm(kind, record, disabled) {
+            const form = bindTermination(termination[terminationKey(change, kind, record)], change, kind, record);
+            const key = form.key;
+            const update = (patch) => setTermination((previous) => ({
+              ...previous, [key]: { ...bindTermination(previous[key], change, kind, record), ...patch, key },
+            }));
+            return h("details", { className: "ep-section" },
+              h("summary", null, t("terminateRun")),
+              h("p", { className: "ep-warn" }, t("terminateHint")),
+              h("fieldset", { disabled: busy },
+                field("terminateReason", form.reason, (value) => update({ reason: value }), { multiline: true }),
+                field("terminateBasis", form.basis, (value) => update({ basis: value }), { multiline: true }),
+                field("terminateReferences", form.references, (value) => update({ references: value }), { multiline: true }),
+                h("label", { className: "ep-row" },
+                  h("input", {
+                    type: "checkbox", checked: form.confirmed, disabled: busy,
+                    onChange: (event) => update({ confirmed: event.target.checked }),
+                  }),
+                  t("terminateConfirm")),
+                button("terminateRun", () => guarded(() => terminateStrandedRun(kind, record)),
+                  disabled || !terminationPayload(change, kind, record, form))));
+          }
           function abandonmentSummary(entry) {
             return h("div", { className: "ep-section" },
               h("strong", null, t("abandonedRecorded")),
@@ -3670,6 +3773,11 @@ return { compareGitObservations };
           function strandedNoticeView(record, disabled, kind) {
             const notice = strandedNotice(record);
             if (notice === "strandedNeedsEvidence") return h("p", { className: "ep-warn" }, t(notice));
+            if (notice === "terminateRun") {
+              const terminated = terminationHistory(change, kind, record);
+              if (terminated) return terminationSummary(terminated);
+              return terminationForm(kind, record, disabled);
+            }
             if (notice !== "abandonRun") return null;
             const entry = abandonmentHistory(change, kind, record);
             if (entry) return abandonmentSummary(entry);
