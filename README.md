@@ -142,7 +142,7 @@ cd dsh-engineering-plan
 
 规划权威数据在目标工作区 `.dsh/engineering/changes/<change-id>/state.json`；独立验证运行记录在同目录的 `runs/<run-id>.json`，保留命令快照、会话/Host 身份、job 关联及结果，不依赖聊天上下文存活。Markdown 是导出投影，手工编辑它不会回写规划。建议将规划纳入项目版本控制前先检查是否包含私密内容。
 
-标准模式导出：`proposal.md`、`requirements.md`、`architecture.md`、`implementation.md`、`impact-analysis.md`、`acceptance.md`、`decisions.md`、`findings.md`、`progress.md`、`tasks.json`，以及 `diagrams/` 中 architecture、sequence、data-flow、task-dag 的 Mermaid 源码。任务 DAG 自动生成；其他图表由规划作者提供。架构页使用内嵌 Mermaid 11.17.2 离线预览三类图源，真实 DSH 中的三图渲染与语法错误恢复已验证。渲染成功只表示图源可展示，不代表架构设计通过评审。
+标准模式导出：`proposal.md`、`requirements.md`、`architecture.md`、`implementation.md`、`impact-analysis.md`、`acceptance.md`、`decisions.md`、`findings.md`、`progress.md`、`tasks.json`，以及 `diagrams/` 中 architecture、sequence、data-flow、task-dag 的 Mermaid 源码。任务 DAG 自动生成；其他图表由规划作者提供。架构页按需从插件的独立 Mermaid 11.17.2 资源文件加载离线渲染器，源码与发布包均仅保存一份渲染器，真实 DSH 中的三图渲染与语法错误恢复已验证。渲染成功只表示图源可展示，不代表架构设计通过评审。
 
 轻量模式固定导出 `proposal.md`、`implementation.md`、`acceptance.md`、`progress.md`、`tasks.json`；其余文档和图表只在内容非空时导出，有任务时导出任务 DAG。内容保留原始空白。导出只重建本次适用的投影，不清除旧导出文件；目录可能仍含历史文件，当前输出清单以返回的 `files` 为准。更新运行插件后，真实轻量表单的展开状态与一次 6 文件导出已核实。标准模式下内容为空的文档与图源会导出为 0 字节文件：结构完整不等于内容已填写，评审时以文件内容为准。
 
@@ -186,7 +186,7 @@ npm run check
 node scripts/validate-package.mjs
 ```
 
-当前完整套件为 686 项（685 通过、1 项可选真实 Chromium 测试默认跳过），`node --test --test-reporter=dot tests/*.test.js` 退出码 0；更早的 242 项、197 项、90 项数字均为当时阶段的历史结果。执行适配集成测试中的subagents/jobs/shell使用模拟服务，测试数量不代表真实链路验收。真实 engineering_dispatch 未审批拦截已验证，前后派发记录为空。0.3.0 已安装启用；真实页面三页签、smoke 计划创建/读取、质量矩阵、运行记录、导出 14 文件、恢复上下文、状态流转选项、并行分支 DAG、三张 Mermaid 图与英文界面均已按 DOM 读数核实，浅色外观下的状态色对比度缺陷已修复。实际 engineering_verify 对未审批 smoke 返回人工批准门禁错误、runs 为空；已批准 v1 的派发 returned、验证因 PowerShell 无 printf 失败并如实记录。任务结构体在 0.3.0 已支持 `affectedModules`/`executor`/`requiredApproval`/`maxRetries` 四个规划字段，界面可编辑、导出进 `tasks.json`；其中 `requiredApproval` 决定收尾归属（`true` 时 Agent 证据齐只能推到「待人工审核」，人工确认才完成；`false` 时证据齐自动完成），其余三个仍是元数据，不驱动任何自动执行或重试；超长模块名与越界重试次数在表单内即时提示并禁用「应用到草稿」，不会被静默保存或悄悄夹取。正向闭环与像素级视觉仍待验收。详细结果见 [验证记录](docs/VERIFICATION.md)，原始需求映射见 [验收跟踪](docs/UI-ACCEPTANCE.md)。
+当前完整套件为 669 项（668 通过、1 项可选真实 Chromium 测试默认跳过），`node --test --test-reporter=dot tests/*.test.js` 退出码 0；更早的 242 项、197 项、90 项数字均为当时阶段的历史结果。执行适配集成测试中的subagents/jobs/shell使用模拟服务，测试数量不代表真实链路验收。真实 engineering_dispatch 未审批拦截已验证，前后派发记录为空。0.3.0 已安装启用；真实页面三页签、smoke 计划创建/读取、质量矩阵、运行记录、导出 14 文件、恢复上下文、状态流转选项、并行分支 DAG、三张 Mermaid 图与英文界面均已按 DOM 读数核实，浅色外观下的状态色对比度缺陷已修复。实际 engineering_verify 对未审批 smoke 返回人工批准门禁错误、runs 为空；已批准 v1 的派发 returned、验证因 PowerShell 无 printf 失败并如实记录。任务结构体在 0.3.0 已支持 `affectedModules`/`executor`/`requiredApproval`/`maxRetries` 四个规划字段，界面可编辑、导出进 `tasks.json`；其中 `requiredApproval` 决定收尾归属（`true` 时 Agent 证据齐只能推到「待人工审核」，人工确认才完成；`false` 时证据齐自动完成），其余三个仍是元数据，不驱动任何自动执行或重试；超长模块名与越界重试次数在表单内即时提示并禁用「应用到草稿」，不会被静默保存或悄悄夹取。正向闭环与像素级视觉仍待验收。详细结果见 [验证记录](docs/VERIFICATION.md)，原始需求映射见 [验收跟踪](docs/UI-ACCEPTANCE.md)。
 
 - `src/core.js`：数据契约校验、存储、版本、依赖与证据状态机。
 - `index.js`：Host 工具和人工命令适配，共用同一领域操作。

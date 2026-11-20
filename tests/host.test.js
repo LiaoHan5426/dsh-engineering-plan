@@ -116,3 +116,25 @@ test('Tool and human command share core while only human path approves', async t
   assert.equal(disposals, 7);
   assert.equal(registeredSkills.size, 0);
 });
+
+test('the Mermaid loader reads the packaged asset through the Host without a client copy', async () => {
+  let command;
+  apply({
+    effect: fn => fn(),
+    skills: { register() {} },
+    tools: { register() {} },
+    commands: { register(definition) { command = definition; } },
+  });
+  const source = await readFile(new URL('../client.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /BEGIN EMBEDDED MERMAID/);
+  const load = source.slice(source.indexOf('        let mermaidPromise;'), source.indexOf('        function MermaidPreview('));
+  const loadMermaid = Function(load + 'return loadMermaid;')();
+  const request = async input => {
+    const reply = await command.handler({ rawInput: JSON.stringify(input) });
+    assert.equal(reply.kind, 'success');
+    return JSON.parse(reply.text);
+  };
+  const vendor = await readFile(new URL('../assets/mermaid-11.17.2.min.js', import.meta.url), 'utf8');
+  assert.equal(await loadMermaid(request), vendor);
+  assert.equal(await loadMermaid(() => assert.fail('Expected cached asset')), vendor);
+});

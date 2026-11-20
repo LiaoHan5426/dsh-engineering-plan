@@ -236,7 +236,7 @@ export function apply(ctx) {
   const execute = createOperations(ctx);
   ctx.effect(() => ctx.tools.register({
     name: 'engineering_plan',
-    description: 'Manage durable engineering plans in the current workspace. For create, use the supplied changeId when the workbench provides a UUID v4; on CHANGE_EXISTS use get to resume. Start with list/get/context; create a draft, inspect source and separate reference documents from verified facts, then save detailed documents and dependency tasks with explicit acceptance criteria. All writes except create require the latest expectedRevision; every action rejects fields that belong to another action, so pass only what that action documents (read-only actions take action plus changeId, and omit expectedRevision). Approval belongs to the human workbench. Transition through running and verifying; record actual evidence per criterion (a nonempty note or artifact is required) before completed. Evidence is attributed self-report, not independent verification. This tool does not execute shell commands, launch agents, or authorize arbitrary source edits. After context loss call context; its documents are excerpted to 1000 characters each, so check documentsTruncated/documentLengths and use get before rewriting a document. verificationRuns reads verification execution records; dispatchRuns reads native Agent dispatch records. Both require changeId and optionally select runId; returned dispatch is not task acceptance. gitObservations reads immutable Git envelopes with changeId and optional observationId. approvalBaselineStatus reads the current user approval baseline and optionally compares an existing observationId without capture, mutation or changing execution gates; equality covers only recorded Git scope. gateStatus is read-only and reports the delivery preconditions (approval, task terminality, current-version evidence per criterion, active or unresolved runs) as data. scopeAudit is read-only and compares the retained Git path lists of an observation against each task expectedFiles, returning declared and undeclared paths; it audits evidence and enforces nothing. readyTasks is read-only and reports which pending tasks could start now, with one reason per blocked task (approval, dependencies, file overlap with running work, or an in-flight/unresolved run); it starts nothing. Export rebuilds Markdown projections from authoritative state.',
+    description: 'Manage durable engineering plans in the current workspace. For create, use the supplied changeId when the workbench provides a UUID v4; on CHANGE_EXISTS use get to resume. Start with list/get/context; create a draft, inspect source and separate reference documents from verified facts, then save detailed documents and dependency tasks with explicit acceptance criteria. All writes except create require the latest expectedRevision; every action rejects fields that belong to another action, so pass only what that action documents (read-only actions take action plus changeId, and omit expectedRevision). Approval belongs to the human workbench. Transition through running and verifying; record actual evidence per criterion (a nonempty note or artifact is required) before completed. Evidence is attributed self-report, not independent verification. This tool does not execute shell commands, launch agents, or authorize arbitrary source edits. After context loss call context; its documents are excerpted to 1000 characters each, so check documentsTruncated/documentLengths and use get before rewriting a document. verificationRuns reads verification execution records; dispatchRuns reads native Agent dispatch records. Both require changeId and optionally select runId; returned dispatch is not task acceptance. gateStatus is read-only and reports the delivery preconditions (approval, task terminality, current-version evidence per criterion, active or unresolved runs) as data. readyTasks is read-only and reports which pending tasks could start now, with one reason per blocked task (approval, dependencies, file overlap with running work, or an in-flight/unresolved run); it starts nothing. Export rebuilds Markdown projections from authoritative state.',
     parameters,
     output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
     execute: toolExecute(async (args, exec) => {
@@ -280,6 +280,7 @@ export function apply(ctx) {
     }),
     isConcurrencySafe: () => false,
   }));
+  let mermaidAsset;
   ctx.effect(() => ctx.commands.register({
     name: 'engineering',
     description: '工程研发：管理规划、任务、证据；工作台中的评审仅由用户确认。',
@@ -290,6 +291,17 @@ export function apply(ctx) {
         const raw = invocation.rawInput.trim();
         if (raw.length > 1_000_000) fail('ENGINEERING_INPUT_TOO_LARGE');
         const input = raw ? JSON.parse(raw) : { action: 'list' };
+        if (input?.action === 'mermaidAsset') {
+          const { offset } = input;
+          if (!Number.isSafeInteger(offset) || offset < 0 || offset >= 32 || Object.keys(input).length !== 2)
+            fail('INVALID_INPUT');
+          mermaidAsset ??= readFileSync(new URL('./assets/mermaid-11.17.2.min.js', import.meta.url), 'utf8');
+          const size = 256 * 1024;
+          const end = (offset + 1) * size;
+          return { kind: 'success', text: JSON.stringify({
+            chunk: mermaidAsset.slice(offset * size, end), done: end >= mermaidAsset.length,
+          }) };
+        }
         if (input && input.action === 'cancelRun') {
           const result = await cancelRun(ctx, invocation.agent, invocation.signal, input, hostInstanceId);
           return { kind: 'success', text: JSON.stringify(result) };

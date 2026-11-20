@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 // Only evaluate the application functions and locale table, never the embedded vendor asset.
 const file = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
-const source = file.slice(file.indexOf('    /* END EMBEDDED MERMAID */'));
+const source = file;
 function actual(name, bindings = {}, indent = '          ') {
   const start = source.indexOf(`${indent}function ${name}(`);
   assert.ok(start >= 0, name);

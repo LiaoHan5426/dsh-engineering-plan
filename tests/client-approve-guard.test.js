@@ -14,8 +14,8 @@ function block(begin, end) {
 }
 
 const planHelpers = Function(`${block('/* BEGIN PLAN COMPLETENESS SUMMARY */', '/* END PLAN COMPLETENESS SUMMARY */')}
-  return { planIncomplete, planErrorKey };`)();
-const { planIncomplete, planErrorKey } = planHelpers;
+  return { planIncomplete };`)();
+const { planIncomplete } = planHelpers;
 
 const task = (criteria) => ({ id: 't', title: 'task', acceptanceCriteria: criteria });
 const plan = (patch = {}) => ({ goal: 'ship it', tasks: [task(['works'])], ...patch });
@@ -42,14 +42,6 @@ test('nothing is claimed about a plan that has not been loaded', () => {
   assert.equal(planIncomplete(undefined), '');
 });
 
-test('only the core INCOMPLETE_PLAN code is translated, other text is shown as is', () => {
-  assert.equal(planErrorKey('INCOMPLETE_PLAN'), 'planIncompleteError');
-  assert.equal(planErrorKey('INCOMPLETE_PLAN: Goal, tasks and acceptance criteria are required'), 'planIncompleteError');
-  assert.equal(planErrorKey('INCOMPLETE_PLANNER'), '');
-  for (const other of ['', null, undefined, 'REVISION_CONFLICT: 3 != 4', 'INVALID_PLAN']) {
-    assert.equal(planErrorKey(other), '', String(other));
-  }
-});
 
 test('the client guard agrees with the core approve() precondition', () => {
   assert.match(core, /INCOMPLETE_PLAN/);

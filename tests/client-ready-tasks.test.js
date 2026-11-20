@@ -8,7 +8,7 @@ const block = source.slice(
   source.indexOf('/* END READY SUMMARY */'),
 );
 const helpers = new Function(`${block.replace(/^ {4}/gm, '')}
-return { readyQuery, readyMatches, readySet, readyReasons, readyCodes };`)();
+return { readyQuery, readyMatches, readySet, readyReasons };`)();
 
 const change = { id: 'c1', revision: 7 };
 const record = {
@@ -37,10 +37,7 @@ test('the ready set exposes exactly the ids the core returned', () => {
   assert.equal(helpers.readySet(null).size, 0);
 });
 
-test('reasons and codes stay per task', () => {
-  assert.deepEqual(helpers.readyCodes(record, 'B'), ['DEPENDENCY_BLOCKED']);
-  assert.deepEqual(helpers.readyCodes(record, 'A'), []);
-  assert.deepEqual(helpers.readyCodes(record, 'missing'), []);
+test('reasons stay per task', () => {
   assert.equal(helpers.readyReasons(record, 'B')[0].detail, 'A');
 });
 

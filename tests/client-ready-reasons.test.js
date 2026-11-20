@@ -10,7 +10,7 @@ const source = readFileSync(join(root, 'client.js'), 'utf8');
 function helperBlock() {
   const start = source.indexOf('const READY_REASON_KEYS');
   assert.ok(start > 0, 'ready reason keys must exist');
-  const end = source.indexOf('function readyCodes', start);
+  const end = source.indexOf('// Which command of a task', start);
   return source.slice(start, end);
 }
 

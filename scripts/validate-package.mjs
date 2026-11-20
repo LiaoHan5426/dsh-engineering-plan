@@ -29,7 +29,7 @@ async function inspectModule(relative) {
   }
 }
 await inspectModule('index.js');
-for (const target of ['client.js', 'assets/mermaid-11.17.2.min.js', 'assets/mermaid-LICENSE', 'scripts/embed-mermaid.mjs']) {
+for (const target of ['client.js', 'assets/mermaid-LICENSE', 'assets/mermaid-11.17.2.min.js']) {
   if (!packaged(target)) throw new Error('Client resource excluded from package: ' + target);
   await fs.access(path.join(root, target));
 }

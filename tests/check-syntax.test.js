@@ -23,14 +23,6 @@ test('syntax check covers every shipped module', async () => {
   for (const entry of ['index.js', 'client.js']) assert.ok(listed.has(entry), `${entry} must be syntax-checked`);
 });
 
-test('syntax check includes the build scripts that rewrite embedded sources', async () => {
-  const listed = await listChecked();
-  for (const entry of ['scripts/embed-mermaid.mjs']) {
-    assert.ok(listed.includes(entry), `${entry} must be syntax-checked`);
-  }
-  assert.ok(listed.every((entry) => entry.endsWith('.js') || entry.endsWith('.mjs')), 'only JS modules are listed');
-});
-
 test('syntax check passes for the current tree', async () => {
   const { stdout } = await run(process.execPath, ['scripts/check-syntax.mjs'], { cwd: root });
   assert.match(stdout, /^syntax ok: \d+ files/m);
