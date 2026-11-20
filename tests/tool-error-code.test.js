@@ -35,7 +35,7 @@ test('errors without a code pass through untouched', () => {
 
 test('every registered tool routes errors through toolExecute', () => {
   const wrapped = source.match(/execute: toolExecute\(/g) || [];
-  assert.equal(wrapped.length, 4, 'engineering_plan, engineering_verify, engineering_dispatch and engineering_git');
+  assert.equal(wrapped.length, 3, 'engineering_plan, engineering_verify and engineering_dispatch');
   assert.equal(/^\s{4}async execute\(args, exec\)/m.test(source), false, 'no tool may bypass toolExecute');
 });
 

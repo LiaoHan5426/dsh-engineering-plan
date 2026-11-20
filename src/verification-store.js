@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { isLockContention, lockFileState, lockHolder, staleLockMessage, cleanTemporaries, renameWithRetry } from './lock-retry.js';
+import { createLockFile, isLockContention, lockFileState, lockHolder, staleLockMessage, cleanTemporaries, renameWithRetry } from './lock-retry.js';
 import { readTerminationEvidence } from './termination-evidence.js';
 
 export const MAX_OUTPUT_BYTES = 64 * 1024;
@@ -159,7 +159,7 @@ async function locked(dir, fn) {
   let handle, identity;
   while (!handle) {
     await directory(dir);
-    try { handle = await fs.open(lock, 'wx', 0o600); identity = await handle.stat(); }
+    try { ({ handle, identity } = await createLockFile(lock, { pid: process.pid, createdAt: new Date().toISOString() })); }
     catch (e) {
       if (!isLockContention(e)) throw e;
       // A competing writer can release the lock between open and lstat.
@@ -169,7 +169,6 @@ async function locked(dir, fn) {
     }
   }
   try {
-    await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
     return await fn();
   } finally {
     await handle.close(); await directory(dir);

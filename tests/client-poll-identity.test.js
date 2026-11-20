@@ -17,7 +17,7 @@ const { pollTargetIsCurrent } = Function(`${block('/* BEGIN POLL IDENTITY SUMMAR
 
 function pollBody() {
   const start = source.indexOf('const synchronize = async () => {');
-  const end = source.indexOf('const timer = window.setInterval(synchronize, 5000);');
+  const end = source.indexOf('// A file change is the only event that can make this panel stale');
   assert.ok(start > 0 && end > start, 'poll body not found');
   return source.slice(start, end);
 }
@@ -111,7 +111,7 @@ test('the automatic run refresh is guarded, silent on failure and retried once a
 
 test('loadChange relies on the identity helper only when it exists', () => {
   const start = source.indexOf('          const loadChange = ');
-  const end = source.indexOf('          async function command(', start);
+  const end = source.indexOf('          async function sendCommand(', start);
   const body = source.slice(start, end);
   assert.match(body, /if \(typeof noteChangeLoaded === "function"\) noteChangeLoaded\(next\);/);
   assert.equal((body.match(/noteChangeLoaded\(next\)/g) || []).length, 1,

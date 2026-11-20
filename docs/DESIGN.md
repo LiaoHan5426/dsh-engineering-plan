@@ -10,11 +10,11 @@
 | --- | --- | --- |
 | contract | 运行时严格校验、schemaVersion、任务和证据契约 | 独立类型包、显式迁移 |
 | planner | 模型工具写入详细方案，工作台编辑和审阅 | 原生流程中的分阶段分析与评审模板 |
-| storage | 工作区 JSON、原子更新、版本记录、导出；不可变 Git 观测 envelope 与请求意图重放绑定 | 独立历史存储、大规模查询 |
-| policy | 人工批准、版本失效、任务依赖、声明文件冲突；可选Git基线与审批原子绑定、只读漂移状态 | 对实际修改和运行环境的策略适配、真实批准后基线验收 |
+| storage | 工作区 JSON、原子更新、版本记录、导出；运行记录与请求意图重放绑定 | 独立历史存储、大规模查询 |
+| policy | 人工批准、版本失效、任务依赖、声明文件冲突 | 对实际修改和运行环境的策略适配 |
 | workflow | 状态机、恢复读取、原生subagents单任务派发及持久记录 | 自动DAG编排、跨Host遗留执行核查与恢复 |
-| verifier | 逐项自报证据门禁；0.3.0 单命令验证、jobs 与独立 runs、只读查询 | 真实 pipeline 验收、检查批次与可信验收映射、Git SHA 与运行环境绑定 |
-| UI | 四视图、任务 DAG SVG、离线 Mermaid 三图预览、证据矩阵、运行/Git观测记录与聊天草稿请求 | 有数据全流程验收、完整视觉/主题验收、差异审阅 |
+| verifier | 逐项自报证据门禁；0.3.0 单命令验证、jobs 与独立 runs、只读查询 | 真实 pipeline 验收、检查批次与可信验收映射、运行环境绑定 |
+| UI | 四视图、任务 DAG SVG、离线 Mermaid 三图预览、证据矩阵、运行记录与聊天草稿请求 | 有数据全流程验收、完整视觉/主题验收、差异审阅 |
 | agent adapter / knowledge | 复用现有会话工具、分类来源 | 外部 Agent 与知识库接入 |
 
 首版只安装一个 bundle，领域核心与 Host/Client 分离。把不稳定接口过早拆成多个 npm 包会增加版本协调成本；领域契约稳定后可按上述边界提取。
@@ -42,7 +42,7 @@
 审查确认了两条**不是缺陷而是边界**的事实，使用前必须知道：
 
 1. **人工审批不是安全控制。** approvals 与计划同存于 `state.json` 明文，`readState` 只做结构校验（`src/core.js` 的 `readState` 与 `currentApproval` 要求 `planVersion` 匹配且 `actor.kind === 'user'`，无 MAC/签名）。任何能写工作区文件的执行者——包括模型的 shell/文件工具——都可以追加一条 approvals 记录，使 `draft → approved`、`acceptDelivery`、派发与验证的批准校验全部放行，而导出与界面会如实显示「用户已批准」。它约束的是**工作流**（把决定权留给人的操作路径），不是权限。真正的隔离需要把审批记录或签名密钥放到工作区外，当前未实现。
-2. **`engineering_plan` 与另外两个工具一致核对工作区根。** 此前只有 `engineering_verify` / `engineering_dispatch` / `engineering_git` 比对 `sandboxPolicy.workspaceRoot`，`engineering_plan` 直接信 `workingDirectory.ensure`，于是 `working_directory {cd: 子目录}` 后 `create` 会写出一个 `list` 永远看不到的第二个 store，`cd` 到工作区外还能以宿主权限在别处写 `state.json`。现由 `index.js` 的 `admittedWorkspace` 统一执行「取根 → 解析 policy → `path.resolve` 比对」三步，三个工具共用，并要求工具调用具备 `callId`/`rootCallId`/`signal`；回归见 `tests/plan-workspace-guard.test.js`。
+2. **`engineering_plan` 与另外两个工具一致核对工作区根。** 此前只有 `engineering_verify` / `engineering_dispatch` 比对 `sandboxPolicy.workspaceRoot`，`engineering_plan` 直接信 `workingDirectory.ensure`，于是 `working_directory {cd: 子目录}` 后 `create` 会写出一个 `list` 永远看不到的第二个 store，`cd` 到工作区外还能以宿主权限在别处写 `state.json`。现由 `index.js` 的 `admittedWorkspace` 统一执行「取根 → 解析 policy → `path.resolve` 比对」三步，三个工具共用，并要求工具调用具备 `callId`/`rootCallId`/`signal`；回归见 `tests/plan-workspace-guard.test.js`。
 
 残留运行的人工出口（分三档，均不改任务状态、证据与审批）：
 

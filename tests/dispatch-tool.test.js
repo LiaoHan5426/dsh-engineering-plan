@@ -71,9 +71,9 @@ async function fixture(t, { approved = true, dependent = false } = {}) {
   for (const key of ['expectedRevision', 'planVersion']) assert.deepEqual(dispatchParameters.properties[key], { type: 'integer', minimum: 1 });
   assert.equal(dispatchParameters.properties.requestId.pattern, '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$');
   assert.ok(inject.includes('subagents')); assert.equal(tool.isConcurrencySafe(), false);
-  assert.deepEqual([...f.tools.keys()], ['engineering_plan', 'engineering_verify', 'engineering_dispatch', 'engineering_git']);
+  assert.deepEqual([...f.tools.keys()], ['engineering_plan', 'engineering_verify', 'engineering_dispatch']);
   assert.deepEqual([...f.commands.keys()], ['engineering']);
-  assert.equal(f.skills.size, 3); assert.equal(f.cleanup.length, 8);
+  assert.equal(f.skills.size, 3); assert.equal(f.cleanup.length, 7);
   for (const phrase of ['publication', 'not completion', 'job tools', 'dispatchRuns', 'without restarting', 'not task acceptance']) assert.ok(tool.description.includes(phrase));
   assert.deepEqual(tool.output.render({}, { runId: 'run' }), [{ type: 'text', text: JSON.stringify({ runId: 'run' }, null, 2) }]);
   f.cleanup.splice(0).reverse().forEach(dispose => dispose());

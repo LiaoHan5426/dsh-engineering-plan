@@ -10,7 +10,7 @@
 
 ## 形成规划
 
-按需求澄清、现状分析、架构设计、接口契约、任务拆解、验收设计顺序推进。保存 proposal、requirements、architecture、implementation、impact-analysis、acceptance、decisions、findings 中相关文档；图表源码可保存到 diagrams.architecture、sequence、data-flow。
+按需求澄清、现状分析、架构设计、接口契约、任务拆解、验收设计顺序推进。保存 proposal、requirements、architecture、implementation、impact-analysis、acceptance、decisions、findings 中相关文档；图表源码可保存到 diagrams.architecture、sequence、data-flow；架构图不是必填项——工作台会按任务依赖、affectedModules 与任务状态自动推导一张架构图，任务一动就重画。只有要固定推导画不出的结构时才写 diagrams.architecture，写入后以你的图为准。
 
 将待人工关注的要求保存为 planning.reviewRequirements。逐项显式填写 planning.sections 的 requirements、analysis、architecture、interfaces、tasks、acceptance，每项含 status（pending 或 ready）与 note。就绪度是自报；依据实际分析结果填写，绝不通过解析 Markdown 标题、复选框或文档长度推断。证据不足留 pending，note 说明缺口。六项 ready 不是新增审批门禁。
 
@@ -37,8 +37,10 @@
 
 - `affectedModules`：本任务会改动的模块或包名（不是文件路径，不做路径归一化）。
 - `executor`：`local` / `subagent` / `external` 的**计划**执行者；本版没有执行器读取它。
-- `requiredApproval`：计划上认为需要人工审批的标记；派发与验证本来就始终要求当前方案已获人工批准。
+- `requiredApproval`：**收尾归属**。为 false（默认）时证据齐了执行方直接 transition completed，自动完成；为 true 时同一请求只落到 `awaiting-review`，整体 status 也随之变成 awaiting-review，只有用户在工作台点「确认完成」才算完成。派发与验证本来就始终要求当前方案已获人工批准。
 - `maxRetries`：0–10 的计划重试上限；本版不会自动重试，失败必须由人决定下一步。
+
+执行中发现原计划不对（拆错粒度、多出文件、验收条件写漏）时，用 `engineering_plan { action: "amendTask", changeId, expectedRevision, taskId, taskPatch }` 直接改这个任务：标题、描述、依赖、声明文件、验收标准、验证命令与四个元数据都能改，依赖环、重复 id、文件冲突按与 save 相同的规则重算，方案版本与既有批准保持不变。验收标准一旦变动，该任务已积累的证据会被清空（旧的 passed 不能拿来满足新措辞），任务若在 verifying 会退回 running 重跑。已完成或已取消的任务不能改；需要动方案结构时才是 replan。
 
 ## 交付前自检用 gateStatus
 
@@ -54,4 +56,4 @@
 
 ## 声明文件要经得起对照
 
-`expectedFiles` 写具体文件路径，或以 `/` 结尾的目录（不带 `..`、不带 Windows 保留名）；目录声明按前缀覆盖其下所有路径，并会与其中任何文件声明判为同一范围。它是范围审计判断「这次改动应该落在哪里」的唯一依据：只写你确认会改的文件；漏写不会阻止保存，但事后 `engineering_plan { action: "scopeAudit" }` 会把实际改到的路径标成未声明，评审时无法解释来源。
+`expectedFiles` 写具体文件路径，或以 `/` 结尾的目录（不带 `..`、不带 Windows 保留名）；目录声明按前缀覆盖其下所有路径，并会与其中任何文件声明判为同一范围。它是派发冲突判断「这次改动应该落在哪里」的唯一依据：只写你确认会改的文件；漏写不会阻止保存，但同一文件的并行派发会因此被判为冲突，或因未声明而在评审时无法解释来源。

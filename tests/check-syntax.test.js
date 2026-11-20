@@ -25,7 +25,7 @@ test('syntax check covers every shipped module', async () => {
 
 test('syntax check includes the build scripts that rewrite embedded sources', async () => {
   const listed = await listChecked();
-  for (const entry of ['scripts/embed-mermaid.mjs', 'scripts/embed-git-comparison.mjs']) {
+  for (const entry of ['scripts/embed-mermaid.mjs']) {
     assert.ok(listed.includes(entry), `${entry} must be syntax-checked`);
   }
   assert.ok(listed.every((entry) => entry.endsWith('.js') || entry.endsWith('.mjs')), 'only JS modules are listed');

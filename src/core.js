@@ -4,11 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { VerificationRunStore } from './verification-store.js';
 import { resolveVerificationRequest } from './verification-request.js';
 import { DispatchRunStore } from './dispatch-store.js';
-import { cleanTemporaries, isLockContention, lockFileState, lockHolder, staleLockMessage, renameWithRetry } from './lock-retry.js';
+import { cleanTemporaries, createLockFile, isLockContention, lockFileState, lockHolder, staleLockMessage, renameWithRetry } from './lock-retry.js';
 import { resolveDispatchRequest } from './dispatch-request.js';
-import { GitObservationStore } from './git-observation-store.js';
-import { compareGitObservations } from './git-comparison.js';
-import { auditScope } from './scope-audit.js';
 import { readTerminationEvidence } from './termination-evidence.js';
 
 const DOCS = ['proposal', 'requirements', 'architecture', 'implementation', 'impact-analysis', 'acceptance', 'decisions', 'findings'];
@@ -212,7 +209,7 @@ async function locked(key, fn) {
     await secureDirectory(key);
     const start = Date.now();
     while (!handle) {
-      try { handle = await fs.open(lock, 'wx', 0o600); }
+      try { ({ handle, identity: held } = await createLockFile(lock, { pid: process.pid, createdAt: new Date().toISOString() })); }
       catch (e) {
         // Windows reports contention as EPERM/EACCES/EBUSY too, and the holder
         // may unlink after our failure but before lstat. A lock that is gone
@@ -224,8 +221,6 @@ async function locked(key, fn) {
         await new Promise(resolve => setTimeout(resolve, 20));
       }
     }
-    held = await handle.stat();
-    await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
     return await fn();
   } finally {
     let replaced = false;
@@ -286,49 +281,8 @@ function exactOptionalData(value, required, optional, name) {
   if (required.some(key => !Object.hasOwn(descriptors, key)) || Reflect.ownKeys(descriptors).some(key =>
     ![...required, ...optional].includes(key) || !Object.hasOwn(descriptors[key], 'value') || !descriptors[key].enumerable)) fail('INVALID_INPUT', `Invalid ${name} fields`);
 }
-function observationId(value) {
-  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) fail('INVALID_INPUT', 'Expected observation UUID');
-  return value.toLowerCase();
-}
 function positiveVersion(value) {
   if (!Number.isSafeInteger(value) || value < 1) fail('INVALID_INPUT', 'Expected positive planVersion');
-}
-function assertBaseline(observation, s, root, sourceRevision, planVersion) {
-  if (observation.changeId !== s.id || observation.sourceRevision !== sourceRevision || observation.planVersion !== planVersion || typeof observation.workspaceRoot !== 'string' || path.resolve(observation.workspaceRoot) !== root || observation.status !== 'ok') fail('BASELINE_MISMATCH', 'Baseline must match change, source revision, plan version and workspace, with status ok');
-}
-async function approvalBaselineStatus(s, input, root) {
-  const approval = s.approvals.findLast(a => a.planVersion === s.planVersion && a.actor?.kind === 'user') ?? null;
-  const result = { changeId: s.id, revision: s.revision, planVersion: s.planVersion, approval,
-    state: 'no_approval', currentObservationId: null, currentObservationMatchesRevision: null, comparison: null, reasons: [] };
-  const store = new GitObservationStore(root);
-  let current = null;
-  if (Object.hasOwn(input, 'observationId')) {
-    current = (await store.get(s.id, input.observationId)).observation;
-    if (current.changeId !== s.id || current.planVersion !== s.planVersion) fail('OBSERVATION_MISMATCH', 'Selected observation must match current change and plan version');
-    result.currentObservationId = current.id;
-    result.currentObservationMatchesRevision = current.sourceRevision === s.revision;
-  }
-  if (!approval) { result.reasons.push('No current user approval'); return result; }
-  const metadataFields = ['sourceRevision', 'approvalRevision', 'codeBaseline'];
-  const legacy = metadataFields.every(key => !Object.hasOwn(approval, key));
-  if (!legacy && (metadataFields.some(key => !Object.hasOwn(approval, key)) || !Number.isSafeInteger(approval.sourceRevision) || approval.sourceRevision < 1 || approval.approvalRevision !== approval.sourceRevision + 1 || approval.approvalRevision > s.revision)) fail('CORRUPT_STATE', 'Invalid approval baseline metadata');
-  if (legacy || approval.codeBaseline === null) {
-    result.state = 'unbound'; result.reasons.push('Current approval has no Git observation baseline'); return result;
-  }
-  const binding = approval.codeBaseline;
-  try {
-    exactData(binding, ['schemaVersion', 'kind', 'observationId', 'sourceRevision', 'planVersion'], 'stored baseline');
-    observationId(binding.observationId); positiveVersion(binding.planVersion); positiveVersion(binding.sourceRevision);
-    if (binding.schemaVersion !== 1 || binding.kind !== 'git-observation' || binding.planVersion !== s.planVersion || binding.sourceRevision !== approval.sourceRevision || approval.approvalRevision !== approval.sourceRevision + 1 || approval.approvalRevision > s.revision) throw new Error('Invalid binding');
-  } catch { fail('CORRUPT_STATE', 'Invalid approval baseline binding'); }
-  const baseline = (await store.get(s.id, binding.observationId)).observation;
-  assertBaseline(baseline, s, root, binding.sourceRevision, binding.planVersion);
-  if (!current) { result.state = 'not_checked'; result.reasons.push('No subsequent observation selected; no implicit capture'); return result; }
-  if (current.id.toLowerCase() === baseline.id.toLowerCase()) fail('OBSERVATION_MISMATCH', 'Select an observation different from the approval baseline');
-  result.comparison = compareGitObservations(baseline, current);
-  result.state = result.comparison.observedEqual === true ? 'observed_equal' : result.comparison.observedEqual === false ? 'observed_drift' : 'unknown';
-  result.reasons = [...result.comparison.reasons];
-  return result;
 }
 function currentApproval(s) { return s.approvals.some(a => a.planVersion === s.planVersion && a.actor.kind === 'user'); }
 /**
@@ -336,34 +290,6 @@ function currentApproval(s) { return s.approvals.some(a => a.planVersion === s.p
  * data instead of thrown errors, so an agent can plan the remaining work without guessing
  * from the UI. It never mutates state or writes runs.
  */
-/**
- * Read-only: compare the latest Git observation's retained path lists against the
- * plan's declared scope. Never writes; unknown observation facts stay unknown.
- */
-async function scopeAudit(s, input, root) {
-  const store = new GitObservationStore(root);
-  const envelopes = await store.list(s.id);
-  const chosen = Object.hasOwn(input, 'observationId')
-    ? envelopes.find(envelope => envelope.observation.id === input.observationId)
-    : [...envelopes].sort((a, b) => (a.observation.finishedAt < b.observation.finishedAt ? 1 : -1))[0];
-  if (!chosen) return { changeId: s.id, revision: s.revision, observationId: null, state: 'no_observation', audit: null };
-  const observation = chosen.observation;
-  if (observation.status !== 'ok' || !Array.isArray(observation.changedPaths))
-    return { changeId: s.id, revision: s.revision, observationId: observation.id, state: 'observation_incomplete', audit: null };
-  const audit = auditScope({ tasks: s.tasks, changedPaths: observation.changedPaths,
-    untrackedPaths: Array.isArray(observation.untrackedPaths) ? observation.untrackedPaths : [] });
-  // Large repositories would otherwise return hundreds of entries on every audit.
-  const ENTRIES_LIMIT = 200;
-  const trimmed = audit.entries.length > ENTRIES_LIMIT;
-  return {
-    changeId: s.id, revision: s.revision, observationId: observation.id, state: 'compared',
-    sourceRevision: observation.sourceRevision, planVersion: observation.planVersion,
-    audit: { ...audit, entries: trimmed ? audit.entries.slice(0, ENTRIES_LIMIT) : audit.entries,
-      entriesOmitted: trimmed ? audit.entries.length - ENTRIES_LIMIT : 0 },
-    limitations: ['scope audit compares declared file paths against retained Git path lists; it does not enforce anything and does not read file contents'],
-  };
-}
-
 async function readyTasks(s, root) {
   const verification = await new VerificationRunStore(root).list(s.id);
   const dispatch = await new DispatchRunStore(root).list(s.id);
@@ -426,9 +352,6 @@ async function gateStatus(s, root) {
       if (!passed(task.evidence, task.id, criterion) || !passed(s.evidence, task.id, criterion)) blockers.push({ code: 'MISSING_EVIDENCE', taskId: task.id, criterion });
     }
   }
-  // Scope drift is reported here for convenience only: it never blocks delivery,
-  // because an undeclared path may be legitimate (tooling, formatting, docs).
-  const scope = await scopeSummary(s, root);
   // Evidence and command runs are recorded independently on purpose: a note can
   // be honest about a manual check. But a task whose every criterion is claimed
   // passed while no approved command ever succeeded in this plan version is worth
@@ -448,7 +371,7 @@ async function gateStatus(s, root) {
   return {
     changeId: s.id, revision: s.revision, planVersion: s.planVersion, status: status(s),
     approved: currentApproval(s), deliveryAccepted, ready: !deliveryAccepted && blockers.length === 0,
-    blockers, tasks: counts, runs, scope, commands, warnings
+    blockers, tasks: counts, runs, commands, warnings
   };
 }
 // Latest verification attempt per (task, command index) in the current plan
@@ -483,31 +406,17 @@ function commandSummary(s, verification) {
     tasks: perTask
   };
 }
-async function scopeSummary(s, root) {
-  const observations = await new GitObservationStore(root).list(s.id);
-  const latest = observations.map(entry => entry.observation)
-    .filter(record => record.status === 'ok' && Array.isArray(record.changedPaths))
-    .sort((a, b) => String(b.finishedAt).localeCompare(String(a.finishedAt)))[0];
-  if (!latest) return { state: 'no_observation', observationId: null, observedAt: null, changedCount: null, untrackedCount: null, pathCount: null, declaredCount: null, undeclaredCount: null };
-  const audit = auditScope({ tasks: s.tasks, changedPaths: latest.changedPaths, untrackedPaths: latest.untrackedPaths ?? [] });
-  return {
-    state: 'included', observationId: latest.id, observedAt: latest.finishedAt ?? latest.capturedAt ?? null,
-    stale: latest.sourceRevision !== s.revision,
-    planVersion: latest.planVersion, sourceRevision: latest.sourceRevision,
-    changedCount: audit.changedCount, untrackedCount: audit.untrackedCount,
-    pathCount: audit.changedCount + audit.untrackedCount,
-    declaredCount: audit.declaredCount, undeclaredCount: audit.undeclared.length
-  };
-}
 function status(s) {
   if (!currentApproval(s)) return 'draft';
   if (s.tasks.length && s.tasks.every(t => t.status === 'completed' || t.status === 'cancelled')) return 'completed';
+  // A task whose gate needs a human is not progress the agent can close: surface it as its own state
+  // so the workbench can ask for exactly one confirmation instead of showing "running" forever.
+  if (s.tasks.some(t => t.status === 'awaiting-review')) return 'awaiting-review';
   return s.startedAt || s.tasks.some(t => t.status !== 'pending') ? 'running' : 'approved';
 }
 const actions = {
   list: ['action'], create: ['action', 'title', 'goal', 'mode', 'changeId'], get: ['action', 'changeId'],
-  save: ['action', 'changeId', 'expectedRevision', 'patch'], approve: ['action', 'changeId', 'expectedRevision', 'baselineObservationId', 'planVersion'],
-  approvalBaselineStatus: ['action', 'changeId', 'observationId'],
+  save: ['action', 'changeId', 'expectedRevision', 'patch'], approve: ['action', 'changeId', 'expectedRevision', 'planVersion'],
   replan: ['action', 'changeId', 'expectedRevision'],
   acceptDelivery: ['action', 'changeId', 'expectedRevision', 'note'],
   resolveUnknown: ['action', 'changeId', 'expectedRevision', 'runId', 'expectedRunRevision', 'reason'],
@@ -515,11 +424,11 @@ const actions = {
   abandonRun: ['action', 'changeId', 'kind', 'runId', 'expectedRevision', 'expectedRunRevision', 'reason'],
   terminateRun: ['action', 'changeId', 'kind', 'runId', 'expectedRevision', 'expectedRunRevision', 'reason', 'terminationEvidence'],
   transition: ['action', 'changeId', 'expectedRevision', 'taskId', 'status', 'reason'],
+  amendTask: ['action', 'changeId', 'expectedRevision', 'taskId', 'taskPatch'],
   evidence: ['action', 'changeId', 'expectedRevision', 'taskId', 'criterion', 'outcome', 'note', 'artifact'],
   context: ['action', 'changeId'], export: ['action', 'changeId', 'expectedRevision'],
   gateStatus: ['action', 'changeId'],
-  readyTasks: ['action', 'changeId'],
-  scopeAudit: ['action', 'changeId', 'observationId']
+  readyTasks: ['action', 'changeId']
 };
 
 export class EngineeringStore {
@@ -610,17 +519,8 @@ export class EngineeringStore {
         fail('INVALID_INPUT', 'Creation changeId must be a lowercase UUID v4');
     }
     if (input.action === 'approve') {
-      exactOptionalData(input, ['action', 'changeId', 'expectedRevision'], ['baselineObservationId', 'planVersion'], 'approval');
-      if (Object.hasOwn(input, 'baselineObservationId')) { observationId(input.baselineObservationId); positiveVersion(input.planVersion); }
+      exactOptionalData(input, ['action', 'changeId', 'expectedRevision'], ['planVersion'], 'approval');
       if (Object.hasOwn(input, 'planVersion')) positiveVersion(input.planVersion);
-    }
-    if (input.action === 'approvalBaselineStatus') {
-      exactOptionalData(input, ['action', 'changeId'], ['observationId'], 'approval baseline status');
-      if (Object.hasOwn(input, 'observationId')) observationId(input.observationId);
-    }
-    if (input.action === 'scopeAudit') {
-      exactOptionalData(input, ['action', 'changeId'], ['observationId'], 'scope audit');
-      if (Object.hasOwn(input, 'observationId')) observationId(input.observationId);
     }
     if (input.action === 'resolveDispatchUnknown') {
       exactData(input, actions.resolveDispatchUnknown, 'dispatch resolution');
@@ -685,10 +585,8 @@ export class EngineeringStore {
       } else s = await readState(file);
       if (s.id !== id) fail('CORRUPT_STATE', 'State identifier mismatch');
       if (action === 'get') return { change: s };
-      if (action === 'approvalBaselineStatus') return approvalBaselineStatus(s, input, this.root);
       if (action === 'readyTasks') return readyTasks(s, this.root);
       if (action === 'gateStatus') return gateStatus(s, this.root);
-      if (action === 'scopeAudit') return scopeAudit(s, input, this.root);
       if (action === 'context') {
         // 只截断 context 里的 documents 以控制体积，但必须显式报告截断键与原始长度；否则模型把 context 回写 save 会不可逆毁掉文档。
         const documents = {}, documentsTruncated = [], documentLengths = {};
@@ -819,13 +717,38 @@ export class EngineeringStore {
         if (s.status !== 'draft') fail('INVALID_STATE', 'Only draft plans can be approved');
         if (!s.goal.trim() || !s.tasks.length || s.tasks.some(t => !t.acceptanceCriteria.length)) fail('INCOMPLETE_PLAN', 'Goal, tasks and acceptance criteria are required');
         if (Object.hasOwn(input, 'planVersion') && input.planVersion !== s.planVersion) fail('PLAN_VERSION_CONFLICT', 'Plan version changed');
-        let codeBaseline = null;
-        if (Object.hasOwn(input, 'baselineObservationId')) {
-          const observation = (await new GitObservationStore(this.root).get(s.id, input.baselineObservationId)).observation;
-          assertBaseline(observation, s, this.root, s.revision, s.planVersion);
-          codeBaseline = { schemaVersion: 1, kind: 'git-observation', observationId: observation.id, sourceRevision: s.revision, planVersion: s.planVersion };
+        s.approvals.push({ planVersion: s.planVersion, actor, recordedAt: new Date().toISOString() });
+      }
+      if (action === 'amendTask') {
+        // Discovery during execution changes the task, not the plan version: the approved goal and the
+        // existing approvals stay valid, so the work continues instead of demanding a human replan.
+        if (s.deliveryAcceptance?.planVersion === s.planVersion) fail('DELIVERY_LOCKED', 'Accepted delivery requires human replan before task changes');
+        if (!currentApproval(s)) fail('APPROVAL_REQUIRED', 'Current plan must be approved');
+        const task = s.tasks.find(t => t.id === input.taskId);
+        if (!task) fail('TASK_NOT_FOUND', 'Task not found');
+        if (['completed', 'cancelled'].includes(task.status)) fail('INVALID_STATE', 'A completed or cancelled task cannot be amended');
+        if (!input.taskPatch || typeof input.taskPatch !== 'object' || Array.isArray(input.taskPatch)) fail('INVALID_INPUT', 'taskPatch must be an object');
+        keys(input.taskPatch, ['title', 'description', 'dependencies', 'expectedFiles', 'acceptanceCriteria', 'verificationCommands', 'affectedModules', 'executor', 'requiredApproval', 'maxRetries'], 'task patch');
+        const projection = t => ({ id: t.id, title: t.title, description: t.description, dependencies: t.dependencies, expectedFiles: t.expectedFiles, acceptanceCriteria: t.acceptanceCriteria, verificationCommands: t.verificationCommands, affectedModules: t.affectedModules, executor: t.executor, requiredApproval: t.requiredApproval, maxRetries: t.maxRetries });
+        // Reuse the plan validator instead of a second copy of the rules, so amended tasks obey the same
+        // dependency cycle, duplicate id and expectedFiles checks as planned ones.
+        const candidate = s.tasks.map(t => t.id === task.id ? { ...t, ...input.taskPatch } : t).map(projection);
+        const validated = planTasks(candidate).find(t => t.id === task.id);
+        const before = projection(task);
+        const criteriaChanged = JSON.stringify(validated.acceptanceCriteria) !== JSON.stringify(task.acceptanceCriteria);
+        Object.assign(task, {
+          title: validated.title, description: validated.description, dependencies: validated.dependencies,
+          expectedFiles: validated.expectedFiles, acceptanceCriteria: validated.acceptanceCriteria,
+          verificationCommands: validated.verificationCommands, affectedModules: validated.affectedModules,
+          executor: validated.executor, requiredApproval: validated.requiredApproval, maxRetries: validated.maxRetries,
+        });
+        if (criteriaChanged) {
+          // Evidence is keyed by criterion: keeping it would let stale passes satisfy the new wording.
+          task.evidence = [];
+          s.evidence = s.evidence.filter(e => e.taskId !== task.id);
+          if (task.status === 'verifying') task.status = 'running';
         }
-        s.approvals.push({ planVersion: s.planVersion, actor, recordedAt: new Date().toISOString(), sourceRevision: s.revision, approvalRevision: s.revision + 1, codeBaseline });
+        s.history.push({ kind: 'task-amended', taskId: task.id, planVersion: s.planVersion, actor, recordedAt: new Date().toISOString(), before, after: projection(task), criteriaChanged });
       }
       if (['transition', 'evidence'].includes(action)) {
         if (s.deliveryAcceptance?.planVersion === s.planVersion) fail('DELIVERY_LOCKED', 'Accepted delivery requires human replan before task changes');
@@ -845,9 +768,14 @@ export class EngineeringStore {
           if (!evidence.note.trim() && !evidence.artifact.trim()) fail('EVIDENCE_EMPTY', 'Evidence requires a nonempty note or artifact');
           s.evidence.push(evidence); t.evidence.push(evidence);
         } else {
-          const transitions = { pending: ['running', 'blocked', 'cancelled'], running: ['verifying', 'blocked', 'failed', 'cancelled'], verifying: ['running', 'blocked', 'failed', 'completed', 'cancelled'], blocked: ['pending', 'running', 'cancelled'], failed: ['pending', 'running', 'cancelled'], completed: [], cancelled: ['pending'] };
-          if (!transitions[t.status]?.includes(input.status)) fail('INVALID_TRANSITION', 'Invalid task transition');
-          if (input.status === 'running') {
+          const transitions = { pending: ['running', 'blocked', 'cancelled'], running: ['verifying', 'blocked', 'failed', 'cancelled'], verifying: ['running', 'blocked', 'failed', 'completed', 'awaiting-review', 'cancelled'], 'awaiting-review': ['running', 'blocked', 'cancelled', 'completed'], blocked: ['pending', 'running', 'cancelled'], failed: ['pending', 'running', 'cancelled'], completed: [], cancelled: ['pending'] };
+          // The gate decides who may close a task: a task flagged requiredApproval can never be
+          // completed by the executor, so its completion request lands in awaiting-review instead of
+          // failing. Tasks without the flag close automatically once every criterion has passed.
+          let target = input.status;
+          if (target === 'completed' && t.requiredApproval && actor.kind !== 'user') target = 'awaiting-review';
+          if (!transitions[t.status]?.includes(target)) fail('INVALID_TRANSITION', 'Invalid task transition');
+          if (target === 'running') {
             // 依赖指向已被删除的任务时，`?.status` 让缺失依赖走同一个门禁，而不是抛 TypeError。
             const { missing, collisions } = startConstraints(s, t, [...verificationRuns, ...dispatchRuns]);
             if (missing.length) fail('DEPENDENCY_BLOCKED', 'Dependencies are not complete');
@@ -857,14 +785,14 @@ export class EngineeringStore {
             if (t.evidence.length) s.history.push({ kind: 'task-restarted', taskId: t.id, planVersion: s.planVersion, actor, recordedAt: new Date().toISOString(), evidence: clone(t.evidence) });
             t.evidence = []; s.evidence = s.evidence.filter(e => e.taskId !== t.id);
           }
-          if (input.status === 'completed') {
+          if (target === 'completed' || target === 'awaiting-review') {
             // 任务视图与审计视图必须同时通过：只看 t.evidence 时，外部改写 state.json 就能让没有 change.evidence 的任务完成。
             const passed = (list, criterion) => list.filter(e => e.taskId === t.id && e.criterion === criterion && e.planVersion === s.planVersion).at(-1)?.outcome === 'passed';
             if (t.acceptanceCriteria.some(criterion => !passed(t.evidence, criterion) || !passed(s.evidence, criterion))) fail('EVIDENCE_REQUIRED', 'Each acceptance criterion requires current passed evidence');
           }
-          if (input.status === 'blocked') t.reason = text(input.reason, 'block reason', 4000, true);
+          if (target === 'blocked') t.reason = text(input.reason, 'block reason', 4000, true);
           else delete t.reason;
-          t.status = input.status;
+          t.status = target;
         }
       }
       if (action === 'export') {
@@ -902,15 +830,11 @@ export class EngineeringStore {
           }).join('\n') + '\n\nRuntime records are host-observed attempts, not acceptance: a succeeded command is not a passed criterion, and a returned dispatch is not a completed task.\n'
           : '\n\n## Runs for this plan version\n\nNo verification or dispatch run is recorded for this plan version. That is not proof the commands were never run elsewhere.\n';
         const progress = path.join(directory, 'progress.md');
-        const approval = s.approvals.findLast(a => a.planVersion === s.planVersion && a.actor?.kind === 'user');
-        const baselineScope = '\n\n## Approval code baseline\n\n' +
-          (approval?.codeBaseline ? `Git observation: ${approval.codeBaseline.observationId}\nSource revision: ${approval.codeBaseline.sourceRevision}\nPlan version: ${approval.codeBaseline.planVersion}\n` : 'No Git observation bound to the current approval.\n') +
-          '\nScope: recorded tracked Git diffs and untracked paths only; untracked contents, ignored files and excluded paths are not compared. Point-in-time observed equality does not establish full workspace equality, independent verification or delivery acceptance. This optional baseline does not change execution gates.\n';
         const acceptance = s.deliveryAcceptance;
         const delivery = '\n\n## Delivery acceptance (explicit human confirmation)\n\n' +
           (acceptance ? `Accepted plan version: ${acceptance.planVersion}\nActor: ${acceptance.actor.kind}:${acceptance.actor.id}\nAccepted at: ${acceptance.acceptedAt}\nNote: ${acceptance.note}\n` : 'Not accepted for the current plan version.\n') +
           '\nThis records user delivery confirmation, not independent execution testing.\n';
-        await atomic(progress, `# ${s.title}\n\n${s.goal}\n\nRevision: ${s.revision}\nPlan version: ${s.planVersion}\nStatus: ${s.status}\n\n` + `## Planning readiness (self-reported)\n\nReview requirements: ${s.planning.reviewRequirements}\n\n` + PLANNING_SECTIONS.map(key => `- ${key}: ${s.planning.sections[key].status}\n  ${s.planning.sections[key].note}`).join('\n') + '\n\n## Tasks\n\n' + s.tasks.map(t => `- [${t.status === 'completed' ? 'x' : ' '}] ${t.id}: ${t.title} — ${t.status}${t.reason ? ` (${t.reason})` : ''}`).join('\n') + '\n' + runSection + baselineScope + delivery); files.push(progress);
+        await atomic(progress, `# ${s.title}\n\n${s.goal}\n\nRevision: ${s.revision}\nPlan version: ${s.planVersion}\nStatus: ${s.status}\n\n` + `## Planning readiness (self-reported)\n\nReview requirements: ${s.planning.reviewRequirements}\n\n` + PLANNING_SECTIONS.map(key => `- ${key}: ${s.planning.sections[key].status}\n  ${s.planning.sections[key].note}`).join('\n') + '\n\n## Tasks\n\n' + s.tasks.map(t => `- [${t.status === 'completed' ? 'x' : ' '}] ${t.id}: ${t.title} — ${t.status}${t.reason ? ` (${t.reason})` : ''}`).join('\n') + '\n' + runSection + delivery); files.push(progress);
         // Retention is deliberate: an export never deletes files. That also means a directory can hold
         // projections from an earlier export (for example standard exports followed by a lite one).
         // Record what this run wrote and which known projections it did not, so the caller can tell

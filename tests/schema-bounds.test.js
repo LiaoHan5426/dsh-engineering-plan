@@ -2,10 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parameters } from '../index.js';
 import { dispatchParameters, verificationParameters } from '../index.js';
-import { gitParameters } from '../src/git-operations.js';
 
 // A schema that admits 0 or -1 for a revision makes the host accept a request the core will
-// always refuse; the model then pays a round trip to learn nothing. All four tool schemas should
+// always refuse; the model then pays a round trip to learn nothing. All three tool schemas should
 // draw the same line, and the plan tool should say out loud that read-only actions omit it.
 const revisionSchemas = [
   ['engineering_plan', parameters],
@@ -26,7 +25,6 @@ test('planVersion is bounded wherever it is accepted', () => {
   const withPlanVersion = [
     ['engineering_verify', verificationParameters],
     ['engineering_dispatch', dispatchParameters],
-    ['engineering_git', gitParameters],
   ];
   for (const [name, schema] of withPlanVersion) {
     assert.equal(schema.properties.planVersion.minimum, 1, `${name} must bound planVersion at 1`);

@@ -144,7 +144,7 @@ test('export writes the four fields into tasks.json', async t => {
   assert.deepEqual(tasks, exported.change.tasks);
 });
 
-test('metadata never enters the DAG, file conflicts, approval or evidence gates', async t => {
+test('metadata stays out of the DAG and file conflicts, while requiredApproval routes the last confirmation', async t => {
   const f = await fixture(t);
   // 元数据合法也不改变循环检测
   await rejects(f.step('save', { patch: { tasks: [task('a', { dependencies: ['b'], requiredApproval: true }), task('b', { dependencies: ['a'], executor: 'subagent' })] } }), 'TASK_CYCLE');
@@ -161,7 +161,7 @@ test('metadata never enters the DAG, file conflicts, approval or evidence gates'
   await files.step('transition', { taskId: 'b', status: 'running' });
   await rejects(files.step('transition', { taskId: 'c', status: 'running' }), 'FILE_CONFLICT');
 
-  // requiredApproval 与 maxRetries 不改变证据门禁，也不触发自动重试
+  // maxRetries 不改变证据门禁，也不触发自动重试；requiredApproval 只决定收尾由谁确认
   await f.step('transition', { taskId: 'a', status: 'running' });
   await f.step('transition', { taskId: 'a', status: 'verifying' });
   await rejects(f.step('transition', { taskId: 'a', status: 'completed' }), 'EVIDENCE_REQUIRED');
@@ -172,10 +172,17 @@ test('metadata never enters the DAG, file conflicts, approval or evidence gates'
   await f.step('transition', { taskId: 'b', status: 'verifying' });
   await rejects(f.step('transition', { taskId: 'b', status: 'completed' }), 'EVIDENCE_REQUIRED');
   for (const criterion of ['works', 'tested']) await f.step('evidence', { taskId: 'b', criterion, outcome: 'passed', note: 'fixture' });
+  // b 要求人工确认：证据齐了也只落到 awaiting-review，整体状态同样待审
   await f.step('transition', { taskId: 'b', status: 'completed' });
+  const pending = await f.get();
+  assert.equal(pending.tasks[1].status, 'awaiting-review');
+  assert.equal(pending.status, 'awaiting-review');
+  // 自审不算数：只有人工请求才能把它推到 completed
+  await f.step('transition', { taskId: 'b', status: 'completed' }, user);
 
   const got = await f.get();
   assert.equal(got.tasks[1].status, 'completed');
+  assert.equal(got.status, 'completed');
   assert.equal(got.tasks[1].evidence.length, 2);
   assert.deepEqual(meta(got.tasks[1]), { affectedModules: [], executor: 'external', requiredApproval: true, maxRetries: 4 });
 });

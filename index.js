@@ -7,9 +7,6 @@ import { launchVerification } from './src/verification-runner.js';
 import { VerificationRunStore } from './src/verification-store.js';
 import { DispatchRunStore } from './src/dispatch-store.js';
 import { launchDispatch } from './src/dispatch-runner.js';
-import { GitObservationStore } from './src/git-observation-store.js';
-import { createGitOperations, gitParameters } from './src/git-operations.js';
-export { gitParameters } from './src/git-operations.js';
 
 export const inject = ['tools', 'commands', 'workingDirectory', 'skills', 'shell', 'jobs', 'shellEnv', 'sandboxPolicy', 'subagents'];
 export const dispatchParameters = {
@@ -37,7 +34,7 @@ const skillDescriptions = {
   'architecture-design': '依据实际代码与运行契约设计模块边界、接口、数据流和迁移方案，保存架构决策与依赖任务。',
   'engineering-review': '评审工程规划或实施结果，核对来源、任务依赖、版本与实际验证证据，记录问题供人工决策。',
 };
-const actions = ['list', 'create', 'get', 'save', 'transition', 'evidence', 'context', 'export', 'verificationRuns', 'dispatchRuns', 'gitObservations', 'approvalBaselineStatus', 'gateStatus', 'readyTasks', 'scopeAudit'];
+const actions = ['list', 'create', 'get', 'save', 'amendTask', 'transition', 'evidence', 'context', 'export', 'verificationRuns', 'dispatchRuns', 'gateStatus', 'readyTasks'];
 const str = { type: 'string' };
 const strings = { type: 'array', items: str };
 const task = {
@@ -47,7 +44,7 @@ const task = {
     acceptanceCriteria: strings, verificationCommands: strings,
     affectedModules: { ...strings, description: 'Advisory module or package names this task touches; not used for DAG or file-conflict gating.' },
     executor: { type: 'string', enum: ['local', 'subagent', 'external'], description: 'Planned executor. Metadata only: no executor is wired to this value in this version.' },
-    requiredApproval: { type: 'boolean', description: 'Planner intent flag. Metadata only: dispatch and verification are always gated by the current human plan approval.' },
+    requiredApproval: { type: 'boolean', description: 'Gate ownership. When true the executor cannot close this task: a completion request lands in awaiting-review and only a human transition to completed finishes it. When false the task closes automatically as soon as every acceptance criterion has current passed evidence.' },
     maxRetries: { type: 'integer', minimum: 0, maximum: 10, description: 'Planner intent flag. Metadata only: nothing retries automatically in this version.' },
   },
   required: ['id', 'title', 'dependencies', 'expectedFiles', 'acceptanceCriteria', 'verificationCommands'],
@@ -76,8 +73,12 @@ export const parameters = {
       references: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { id: str, title: str, source: str, kind: { type: 'string', enum: ['reference', 'verified', 'assumption'] }, note: str }, required: ['id', 'title', 'source', 'kind', 'note'] } },
     } },
     runId: { type: 'string', description: 'Optional run identifier for verificationRuns or dispatchRuns; omit to list runs. Both actions require changeId.' },
-    observationId: { type: 'string', description: 'Optional observation identifier for gitObservations or approvalBaselineStatus. The latter reads current approval baseline comparison without capture or state changes; omit observationId to leave it unchecked. Requires changeId.' },
-    taskId: str, status: { type: 'string', enum: ['pending', 'running', 'verifying', 'blocked', 'failed', 'completed', 'cancelled'] },
+    taskId: str, status: { type: 'string', enum: ['pending', 'running', 'verifying', 'blocked', 'failed', 'awaiting-review', 'completed', 'cancelled'] },
+    taskPatch: { type: 'object', additionalProperties: false, description: 'Fields to change on one task of the current plan version. Discovery during execution changes the task without invalidating the approved plan; changing acceptanceCriteria drops that task evidence and returns a verifying task to running.', properties: {
+      title: str, description: str, dependencies: strings, expectedFiles: strings, acceptanceCriteria: strings, verificationCommands: strings,
+      affectedModules: strings, executor: { type: 'string', enum: ['local', 'subagent', 'external'] },
+      requiredApproval: { type: 'boolean' }, maxRetries: { type: 'integer', minimum: 0, maximum: 10 },
+    } },
     reason: str, criterion: str, outcome: { type: 'string', enum: ['passed', 'failed'] }, note: str, artifact: str,
   }, required: ['action'],
 };
@@ -119,17 +120,6 @@ export function createOperations(ctx, admitted = (agent, signal) => admittedWork
     const root = await admitted(agent, signal);
     let store = stores.get(root);
     if (!store) { store = new EngineeringStore(root); stores.set(root, store); }
-    if (input.action === 'gitObservations') {
-      const descriptors = Object.getOwnPropertyDescriptors(input);
-      if (![Object.prototype, null].includes(Object.getPrototypeOf(input)) || Reflect.ownKeys(descriptors).some(key =>
-        !['action', 'changeId', 'observationId'].includes(key) || !Object.hasOwn(descriptors[key], 'value') || !descriptors[key].enumerable)) fail('ENGINEERING_INVALID_INPUT');
-      await store.execute({ action: 'get', changeId: input.changeId }, { kind, id: agent.id });
-      if (signal?.aborted) fail('ENGINEERING_CANCELLED');
-      const observations = new GitObservationStore(root);
-      return Object.hasOwn(input, 'observationId')
-        ? { observation: await observations.get(input.changeId, input.observationId) }
-        : { observations: await observations.list(input.changeId) };
-    }
     if (['verificationRuns', 'dispatchRuns'].includes(input.action)) {
       if (Object.keys(input).some(key => !['action', 'changeId', 'runId'].includes(key))) fail('ENGINEERING_INVALID_INPUT');
       await store.execute({ action: 'get', changeId: input.changeId }, { kind, id: agent.id });
@@ -254,7 +244,7 @@ export function apply(ctx) {
       exec.signal.throwIfAborted();
       return execute(args, exec.agent, 'agent', exec.signal);
     }),
-    isConcurrencySafe: args => ['list', 'get', 'context', 'verificationRuns', 'dispatchRuns', 'gitObservations', 'approvalBaselineStatus', 'gateStatus', 'readyTasks', 'scopeAudit'].includes(args?.action),
+    isConcurrencySafe: args => ['list', 'get', 'context', 'verificationRuns', 'dispatchRuns', 'gateStatus', 'readyTasks'].includes(args?.action),
   }));
   ctx.effect(() => ctx.tools.register({
     name: 'engineering_verify',
@@ -288,15 +278,6 @@ export function apply(ctx) {
       if (!created) return run;
       return launchDispatch(ctx, exec, run, new DispatchRunStore(root));
     }),
-    isConcurrencySafe: () => false,
-  }));
-  const executeGit = createGitOperations(ctx, (agent, signal) => admittedWorkspace(ctx, agent, signal));
-  ctx.effect(() => ctx.tools.register({
-    name: 'engineering_git',
-    description: 'Capture immutable Git observations or compare a new observation with a saved baseline from this change. Replaying a request returns the saved observation without collecting again. Returns bindingCurrent and, for compare, comparison. Observations do not bind a baseline, change plans, approve work or establish full workspace equality. Concurrent hosts may collect before the store deduplicates their records.',
-    parameters: gitParameters,
-    output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-    execute: toolExecute((args, exec) => executeGit(args, exec)),
     isConcurrencySafe: () => false,
   }));
   ctx.effect(() => ctx.commands.register({

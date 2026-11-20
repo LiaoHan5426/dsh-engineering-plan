@@ -64,6 +64,26 @@ export async function lockHolder(file) {
   return { pid, createdAt, alive, unreadable: parsed === null };
 }
 
+/**
+ * Create the lock and put its holder metadata inside in one step.
+ *
+ * `open(…, 'wx')` and the following write are two separate round trips to libuv, so a
+ * process killed between them leaves an empty lock file: the lock is still held, but
+ * there is no pid to report. Doing the stat last keeps the JS side out of that window,
+ * which shrinks it to the two I/O requests themselves.
+ */
+export async function createLockFile(lock, payload) {
+  const handle = await fs.open(lock, 'wx', 0o600);
+  try {
+    await handle.writeFile(JSON.stringify(payload));
+    return { handle, identity: await handle.stat() };
+  } catch (error) {
+    await handle.close().catch(() => {});
+    await fs.unlink(lock).catch(() => {});
+    throw error;
+  }
+}
+
 export function staleLockMessage(subject, holder) {
   if (!holder) return `${subject} is locked by a lock file that vanished while being read; inspect it before removing`;
   // A writer killed between open() and its metadata write leaves an empty lock: no pid, but the

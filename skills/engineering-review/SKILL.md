@@ -26,18 +26,14 @@
 
 任务进入 verifying 后提交验收 evidence；任务已 failed 或 blocked 时仍可补记**失败**证据（只能 failed，用于留下失败原因与现场，不会让任务变成完成）。每个 criterion 对应实际 observation，至少提供非空 note 或 artifact。产物引用本身不证明成功；区分本人报告与独立复核。符合所有当前版本条件后再 transition completed；受阻用 blocked 和具体 reason，保留未完成项。
 
+任务 `requiredApproval` 为 true 时，执行方的完成请求只把它送到 `awaiting-review`：证据已齐、只差人点头。评审时核对这批证据，再由用户在工作台点「确认完成」（或用户在会话里发起 transition completed），不要替用户确认。执行中若改过任务，history 里会有 `task-amended` 记录（含 before/after 与 criteriaChanged），评审时按它解释「为什么和批准的规划不一样」，并确认改动没有放宽验收标准。
+
 ## 交付门禁与运行处置
 
 - 用 `engineering_plan { action: "gateStatus", changeId }` 读取核心判定的交付前置条件，不靠界面文案或自行推断。`ready: false` 时按 blocker 的 code 补齐；`ready: true` 也不代表交付已确认，确认只能由用户本人在工作台完成。
 - 同一任务已有未结案验证运行（含 unknown）时，派发入口会被核心拒绝；先核查该运行或请用户结案，不要换 taskId 或另开变更绕开。
 - 运行卡在 starting/running 只能由人工终止：工作台的「终止当前运行」，或用户在会话里执行 `/engineering {"action":"cancelRun",...}`。模型工具没有该动作，不要用 shell kill，也不要改写 runs/*.json。
 - unknown 运行须由用户确认子 Agent、后代及相关进程均已停止后在工作台结案；结案之前该变更的相关写入保持阻塞。
-## 对照声明的改动范围
-
-- 需要判断「实际改了哪些文件、是否越出任务声明」时，用 `engineering_plan { action: "scopeAudit", changeId, observationId? }`。它读最近一次 Git 观测保留的路径清单，与任务的 `expectedFiles` 逐条对照，返回 `declaredCount`（已声明的路径数）、`undeclared`（没有任何任务声明的路径）与 `untouched`（声明了但未出现的路径）。
-- 这是证据，不是许可：审计不拦截任何操作，也不读文件内容。`state` 为 `no_observation` / `observation_incomplete` 时说明观测缺失或来自旧记录，此时不要下「范围正确」的结论。
-- 路径比较不区分大小写（`SRC/Core.js` 与 `src/core.js` 是同一个文件），反斜杠归一、去重排序，但不折叠点段（`src/../client.js` 与 `client.js` 视为不同）。声明可以写具体文件，也可以写以 `/` 结尾的目录；目录声明按前缀匹配该目录下的路径，且与其中任何文件声明构成同一范围（冲突判定同样按前缀）。
-
 ## 给用户的结果
 
 按影响列出发现、证据、建议修复和未验证部分。无发现也说明实际审查范围与验证局限。记录结果到适用文档或 evidence，按需 export。人工 approve/replan 只由用户在工作台操作，Agent 不走人类命令路径冒充用户。审查不启动第二个 AgentLoop，也不承诺自动执行或自动隔离。

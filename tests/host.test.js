@@ -64,7 +64,7 @@ test('Tool and human command share core while only human path approves', async t
   ctx.commands = { register(def) { command = def; return () => disposals++; } };
   ctx.effect = fn => cleanup.push(fn());
   apply(ctx);
-  assert.deepEqual([...tools.keys()].sort(), ['engineering_dispatch', 'engineering_git', 'engineering_plan', 'engineering_verify']);
+  assert.deepEqual([...tools.keys()].sort(), ['engineering_dispatch', 'engineering_plan', 'engineering_verify']);
   const tool = tools.get('engineering_plan');
   assert.equal(tool.name, 'engineering_plan');
   assert.ok(inject.includes('skills'));
@@ -113,6 +113,6 @@ test('Tool and human command share core while only human path approves', async t
   assert.equal(tool.isConcurrencySafe({ action: 'save' }), false);
   assert.equal(tool.isConcurrencySafe({ action: 'context' }), true);
   cleanup.forEach(fn => fn());
-  assert.equal(disposals, 8);
+  assert.equal(disposals, 7);
   assert.equal(registeredSkills.size, 0);
 });

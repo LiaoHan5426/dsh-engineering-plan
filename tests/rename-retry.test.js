@@ -52,7 +52,7 @@ test('the retry is bounded and surfaces the original code', async () => {
 
 test('the writers go through the shared retry instead of calling rename directly', async () => {
   const { readFileSync } = await import('node:fs');
-  for (const file of ['src/core.js', 'src/verification-store.js', 'src/dispatch-store.js', 'src/git-observation-store.js']) {
+  for (const file of ['src/core.js', 'src/verification-store.js', 'src/dispatch-store.js']) {
     const source = readFileSync(`J:/Code/Engineering Planner/${file}`, 'utf8');
     assert.doesNotMatch(source, /await fs\.rename\(temporary/, `${file} must use renameWithRetry`);
     assert.match(source, /renameWithRetry\(temporary, file\)/, `${file} must rename through the helper`);

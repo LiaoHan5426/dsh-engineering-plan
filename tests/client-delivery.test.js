@@ -65,7 +65,7 @@ test('archived snapshots and restarted evidence are read independently without m
 
 test('actual loadChange preserves unrelated forms and resets confirmation on version changes', () => {
   const start = source.indexOf('          const loadChange = ');
-  const end = source.indexOf('          async function command(', start);
+  const end = source.indexOf('          async function sendCommand(', start);
   const expression = source.slice(start, end).trim().replace(/^const loadChange = /, '').replace(/;$/, '');
   let delivery = { note: 'keep', confirmed: true, changeId: 'a', planVersion: 1 };
   const cleared = [];

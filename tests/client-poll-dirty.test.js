@@ -50,8 +50,8 @@ test('equal, older, foreign and malformed snapshots are refused', () => {
 
 function pollBody() {
   const start = source.indexOf('const synchronize = async () => {');
-  const end = source.indexOf('const timer = window.setInterval(synchronize, 5000);');
-  assert.ok(start > 0 && end > start, 'polling loop not found');
+  const end = source.indexOf('// A file change is the only event that can make this panel stale');
+  assert.ok(start > 0 && end > start, 'synchronisation body not found');
   return source.slice(start, end);
 }
 

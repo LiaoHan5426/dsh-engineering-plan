@@ -85,7 +85,7 @@ cd dsh-engineering-plan
 - 文件必须始终可解析，`proposal` 要么为空、要么是完整长度，不会出现半截写入（临时文件 + `fsync` + `rename`）。
 - 被杀的写手会留下 `state.json.<uuid>.tmp`；读取方忽略它们，下一次成功写入会清掉超过 10 分钟的旧临时文件（并发写手的活文件不会被误删）。
 - 被杀的写手还会在 `.lock` 上留下痕迹。插件**不会**自动删除它：锁里记录了 `pid` 与获取时间，超时后报 `LOCK_BUSY` 并说明「该进程已不在运行，锁可能已陈旧」，由人确认后删除。
-- 运行记录（`runs/`、`dispatches/`、`git-observations/`）用同一套锁与原子写，因此同样具备这两条性质：陈旧锁点名持有者、旧临时文件在下一次写入时清理。
+- 运行记录（`runs/`、`dispatches/`）用同一套锁与原子写，因此同样具备这两条性质：陈旧锁点名持有者、旧临时文件在下一次写入时清理。
 ## 导出与 manifest
 
 `progress.md` 末尾还包含 `## Runs for this plan version`：当前方案版本的验证与派发运行逐条列出（`runId`、任务、状态、命令与退出码），并注明「运行记录是宿主观察到的尝试，不等于验收」。没有记录时写明确说明，而不是空表。
@@ -96,6 +96,26 @@ cd dsh-engineering-plan
 
 看到 `stale` 里的文件名时，不要把它们当成当前方案的产物——它们属于更早的一次导出（例如标准模式导出后改用轻量模式，`requirements.md` 会留在目录里）。
 
+## 对话流里的样子
+
+四个工具在 `tool.call.toolview` 里各占一行，默认只显示摘要：
+
+```
+▸ 工程研发 · plan · list · 4 个变更
+▸ 工程研发 · verify · READONLY-SMOKE · succeeded · exit 0
+```
+
+展开才是原始参数与结果，且截断到 1200 字符——对话流不再被整份 JSON 淹没，工作台里的四个视图不受影响。
+
+## 在右侧栏打开
+
+四视图既能占据整个会话区域，也能进右侧栏，与对话并排：右栏里看工程研发，左边继续和 Agent 对话。入口有两个——顶栏「工程研发」页签旁的常规视图，以及工作台内「在侧边栏打开」按钮（调 `ctx.betterSidebar.openTab`）。
+
+- 同一份界面，不是两套：侧栏实例只是多一个 `ep-compact` 类（上下堆叠、矩阵不再设最小宽度）。
+- 页签 id `engineering-planner:workbench`，`single: true`，重复打开只聚焦已有实例。
+- `betterSidebar` 是**可选服务**：未安装该插件时，工作台照常在全宽视图里工作，只是没有侧栏入口。服务通过 `ctx.inject(["betterSidebar"], …)` 取用——回调只在服务就绪后执行，未声明就直读 `ctx.betterSidebar` 会让整个客户端模块中止加载。
+- 侧栏没有会话输入框，「填入会话」在那里改为复制请求到剪贴板并提示。
+
 ## 只读查询（Agent 与界面共用）
 
 下面四个动作都只读：不改 revision、不写任务状态、不生成证据，也不代表任何门禁已被满足。界面上的「当前可开始 N」「交付门禁（核心判定）」「改动范围」都来自它们，因此人和 Agent 看到的是同一份判定。
@@ -103,12 +123,14 @@ cd dsh-engineering-plan
 - `gateStatus`（`changeId`）：交付前体检。返回 `ready`、`approved`、`deliveryAccepted`、七状态任务计数、`runs`，以及 `blockers`：`APPROVAL_REQUIRED`、`ACTIVE_RUN`、`UNRESOLVED_UNKNOWN`、`TASK_NOT_TERMINAL`、`NO_COMPLETED_TASK`、`MISSING_EVIDENCE`（同时比对任务内证据与全局证据，与 `acceptDelivery` 同源）。另带 `scope` 摘要（最近一次 `ok` 观测的路径统计），**不产生 blocker**。它只回答「现在能不能交付」，不替你确认交付。
 - `readyTasks`（`changeId`）：每个任务给出 `reasons`，说明此刻为什么还不能开始——`APPROVAL_REQUIRED`、`TASK_NOT_PENDING`、`DEPENDENCY_BLOCKED`（带缺失依赖）、`FILE_CONFLICT`（带 `mine overlaps TASK theirs`）、`ACTIVE_RUN`、`UNRESOLVED_UNKNOWN`。`ready` 数组就是可以立刻推进的任务；它不启动任何东西。
   界面把同一份判定直接显示在任务卡片上：每个任务卡片的「任务详情」里会列出它此刻还不能开始的原因（未批准的方案、未完成的前置任务、重叠的在跑文件、未结束的运行），因此不必自己拼依赖关系。
-- `scopeAudit`（`changeId`，可选 `observationId`）：把任务声明的 `expectedFiles` 与已保存观测的路径清单对照，给出 `entries`、`undeclared`、`untouched`。`state` 为 `no_observation` 或 `observation_incomplete` 时**不能**得出「范围正确」的结论。路径比较不区分大小写（与文件冲突判定一致，`SRC/Core.js` 与 `src/core.js` 视为同一文件），但不折叠点段（`src/../client.js` 与 `client.js` 仍视为不同）；声明以 `/` 结尾表示目录前缀。它不读文件内容，也不拦截任何操作。
-- `approvalBaselineStatus`（`changeId`，可选 `observationId`）：读取批准时绑定的 Git 基线，判断后续观测是否漂移。不自动撤销批准，也不触发采集。
 
 另有三个通用只读动作：`list` 返回变更摘要与逐条读取警告（单个损坏条目不拖垮整表），`get` 返回完整状态（损坏或缺失时直接报错，不猜），`context` 返回供 Agent 恢复工作的紧凑投影——文档每篇截断到 1000 字符，并给出 `documentsTruncated` 与 `documentLengths`，先用它们判断是否需要 `get` 读全文。 `context` 的 `gate` 块另带 `commands: { total, succeeded, failed, unrun }`——只给四个计数（逐条运行记录请用 `gateStatus`），使恢复上下文的模型能判断命令是否执行过。
 
-写操作（`create`、`save`、`transition`、`evidence`、`export`、`replan`）中，`save`/`replan`/`export` 需要 `expectedRevision`；`approve`、`replan`、`acceptDelivery`、`resolveUnknown`、`resolveDispatchUnknown`、`abandonRun` 只对人工入口开放，模型工具列表里没有它们。
+写操作（`create`、`save`、`amendTask`、`transition`、`evidence`、`export`、`replan`）中，`save`/`amendTask`/`replan`/`export` 需要 `expectedRevision`；`approve`、`replan`、`acceptDelivery`、`resolveUnknown`、`resolveDispatchUnknown`、`abandonRun` 只对人工入口开放，模型工具列表里没有它们。
+
+   任务要改主意就用 `amendTask`（`changeId`、`taskId`、`taskPatch`）：标题、描述、依赖、声明文件、验收标准、验证命令与元数据都能改，依赖环、重复 id、文件冲突按 `save` 的同一套规则重算；验收标准变了会清掉该任务已经攒下的证据。
+
+   质检出结果后不需要人逐条点完成：任务 `requiredApproval` 为 `false` 时，证据齐了执行方直接把任务推到 `completed`；为 `true` 时同一个请求只落到 `awaiting-review`（整体 `status` 也变成 `awaiting-review`），只有人在工作台确认才算完成。
 
 ## 用户交付评审
 
@@ -128,14 +150,6 @@ cd dsh-engineering-plan
 
 异常退出可能留下 `.lock`。先确认锁记录的进程已退出并备份状态，再移除该变更目录中的残留锁，然后重新打开工作台。插件不会仅凭时间自动抢锁。导出多文件并非整体事务；中途失败可从权威 state 重新导出。
 
-## Git 观测
-
-架构页的「Git 观测记录与请求」可刷新历史记录、选择比较基线，并将 `engineering_git` 请求填入聊天草稿或复制。请求由会话发送后执行，页面不自动提交。采集使用 `action: capture`；比较使用 `action: compare` 并指定已保存的 `baselineId`。两者均携带 `changeId`、`expectedRevision`、`planVersion` 和 `requestId`。同一请求ID返回原观测；需要新采样时使用新ID。通过 `engineering_plan` 的 `gitObservations` 动作读取记录。
-
-观测分别记录HEAD、暂存差异、工作树差异及未跟踪路径摘要。未跟踪内容、ignored内容和工程状态目录不覆盖；输出上限或采样变化会明确报错，不生成完整摘要。比较结果仅针对观测范围，不建立完整工作区相等，也不自动批准计划或写入验收证据。当前工作目录必须与会话初始策略目录一致，单纯切换cwd不会重设该边界。真实宿主已验证截断错误、记录持久化、重放，以及独立顶层会话中unborn仓库的成功采集与比较。页面可选择两条已保存观测进行只读比较，展示四项差异三态和完整限制；中文正常路径已实测。已提交仓库各类变更仍待完整验证。
-
-批准按钮旁可选择可选 Git 基线，默认不绑定。候选必须属于当前变更、方案版本和批准前修订，且观测status为ok；dirty/unborn可选。选择与人工批准一次性写入，重新规划时随旧审批归档。`engineering_plan` 的 `approvalBaselineStatus` 动作读取当前绑定；可传 `observationId` 显式比较后续观测，不自动采集或改变批准、任务、验收状态。新版选择控件和未批准查询已实测，实际批准绑定及后续漂移仍待正向验收。详见 [审批基线契约](docs/APPROVAL-BASELINE.md)。
-
 ## 并发与不变量测试
 
 `tests/concurrency.test.js` 起三个独立进程对同一变更并发保存，断言 `revision` 等于「承认成功写入数 + 1」、最终文档是完整值而非撕裂写、`list` 无损坏警告。
@@ -150,21 +164,21 @@ cd dsh-engineering-plan
 
 ## 当前边界
 
-本版是规划、过程跟踪与单命令验证适配的开发中版本。通过证据仍是带操作者来源的报告；独立 runs 只记录执行事实。显式 `engineering_verify` 请求可执行已批准的单条验证命令，`engineering_dispatch` 可派发单个已批准任务；两者都不自动遍历整个任务图或全部检查，不创建 Git worktree，也不拦截插件外的文件修改。文件冲突检测依据任务声明，未覆盖未申报文件或 Git 分支差异。开发实施仍由当前会话使用 DSH 原生工具完成。
+本版是规划、过程跟踪与单命令验证适配的开发中版本。通过证据仍是带操作者来源的报告；独立 runs 只记录执行事实。显式 `engineering_verify` 请求可执行已批准的单条验证命令，`engineering_dispatch` 可派发单个已批准任务；两者都不自动遍历整个任务图或全部检查，也不拦截插件外的文件修改。文件冲突检测依据任务声明，未覆盖未申报文件。开发实施仍由当前会话使用 DSH 原生工具完成。
 
 历史记录保存在同一状态文件，总大小上限 2 MiB；大型项目应拆分为多个变更。任务取消不等于通过验收，汇总完成态包括已取消任务，应同时审阅任务状态。
 
 **审批是工作流约束，不是安全控制。** 批准记录与被批准的计划同存于 `state.json` 明文（无签名），任何能写工作区文件的人——包括模型自己的 shell 工具——都可以追加一条批准，界面与导出会如实标注为「用户已批准」。要在此之上做权限隔离，需要把审批记录或签名密钥放到工作区外，本插件未实现。详见 `docs/DESIGN.md` 的「已知信任边界」。
 
-四个工具都要求会话工作区与 `sandboxPolicy.workspaceRoot` 一致；把工作目录切到子目录或其它位置后调用会得到 `ENGINEERING_WORKSPACE_MISMATCH`，不会在工作区外生成第二份状态。
+三个工具都要求会话工作区与 `sandboxPolicy.workspaceRoot` 一致；把工作目录切到子目录或其它位置后调用会得到 `ENGINEERING_WORKSPACE_MISMATCH`，不会在工作区外生成第二份状态。
 
-原方案剩余目标继续跟踪：完整分阶段原生开发执行与恢复、检查批次编排及可信验收映射、Git 基线批准与用户交付确认的正向实测、工作树隔离、差异审阅，以及外部 Agent/知识服务和稳定后的多包拆分。单命令验证适配不替代这些目标；需用真实需求验收完整闭环。
+原方案剩余目标继续跟踪：完整分阶段原生开发执行与恢复、检查批次编排及可信验收映射、用户交付确认的正向实测、工作树隔离、差异审阅，以及外部 Agent/知识服务和稳定后的多包拆分。单命令验证适配不替代这些目标；需用真实需求验收完整闭环。
 
 EAP 可作为第一个使用项目；其工程说明是参考输入，不作为插件的硬编码规则，也未由本插件修改。
 
 ## 开发
 
-Node.js >=22，Host 无额外 npm 运行依赖；Client 内嵌第三方 Mermaid 11.17.2，原库与许可证保留在 assets。使用 `node scripts/embed-mermaid.mjs` 校验固定 SHA 并重建嵌入区；7项独立重建测试覆盖内容一致性、幂等及失败时保留文件。Git 比较算法同样以字符串嵌入客户端，由 `node scripts/embed-git-comparison.mjs` 重建，`--check` 只读比对，配套 22 项测试。两个脚本的 `--check` 均已纳入发布前检查。
+Node.js >=22，Host 无额外 npm 运行依赖；Client 内嵌第三方 Mermaid 11.17.2，原库与许可证保留在 assets。使用 `node scripts/embed-mermaid.mjs` 校验固定 SHA 并重建嵌入区；7项独立重建测试覆盖内容一致性、幂等及失败时保留文件，`--check` 已纳入发布前检查。
 
 ```sh
 npm test
@@ -172,7 +186,7 @@ npm run check
 node scripts/validate-package.mjs
 ```
 
-当前完整套件为 838 项（837 通过、1 项可选真实 Chromium 测试默认跳过），`node --test --test-reporter=dot tests/*.test.js` 退出码 0；更早的 242 项、197 项、90 项数字均为当时阶段的历史结果。执行适配集成测试中的subagents/jobs/shell使用模拟服务，测试数量不代表真实链路验收。真实 engineering_dispatch 未审批拦截已验证，前后派发记录为空。0.3.0 已安装启用；真实页面四页签、smoke 计划创建/读取、质量矩阵、运行记录、导出 14 文件、恢复上下文、状态流转选项、并行分支 DAG、三张 Mermaid 图与英文界面均已按 DOM 读数核实，浅色外观下的状态色对比度缺陷已修复。实际 engineering_verify 对未审批 smoke 返回人工批准门禁错误、runs 为空；已批准 v1 的派发 returned、验证因 PowerShell 无 printf 失败并如实记录。任务结构体在 0.3.0 已支持 `affectedModules`/`executor`/`requiredApproval`/`maxRetries` 四个规划元数据字段，界面可编辑、导出进 `tasks.json`；它们不驱动任何自动执行或重试；超长模块名与越界重试次数在表单内即时提示并禁用「应用到草稿」，不会被静默保存或悄悄夹取。正向闭环与像素级视觉仍待验收。详细结果见 [验证记录](docs/VERIFICATION.md)，原始需求映射见 [验收跟踪](docs/UI-ACCEPTANCE.md)。
+当前完整套件为 686 项（685 通过、1 项可选真实 Chromium 测试默认跳过），`node --test --test-reporter=dot tests/*.test.js` 退出码 0；更早的 242 项、197 项、90 项数字均为当时阶段的历史结果。执行适配集成测试中的subagents/jobs/shell使用模拟服务，测试数量不代表真实链路验收。真实 engineering_dispatch 未审批拦截已验证，前后派发记录为空。0.3.0 已安装启用；真实页面三页签、smoke 计划创建/读取、质量矩阵、运行记录、导出 14 文件、恢复上下文、状态流转选项、并行分支 DAG、三张 Mermaid 图与英文界面均已按 DOM 读数核实，浅色外观下的状态色对比度缺陷已修复。实际 engineering_verify 对未审批 smoke 返回人工批准门禁错误、runs 为空；已批准 v1 的派发 returned、验证因 PowerShell 无 printf 失败并如实记录。任务结构体在 0.3.0 已支持 `affectedModules`/`executor`/`requiredApproval`/`maxRetries` 四个规划字段，界面可编辑、导出进 `tasks.json`；其中 `requiredApproval` 决定收尾归属（`true` 时 Agent 证据齐只能推到「待人工审核」，人工确认才完成；`false` 时证据齐自动完成），其余三个仍是元数据，不驱动任何自动执行或重试；超长模块名与越界重试次数在表单内即时提示并禁用「应用到草稿」，不会被静默保存或悄悄夹取。正向闭环与像素级视觉仍待验收。详细结果见 [验证记录](docs/VERIFICATION.md)，原始需求映射见 [验收跟踪](docs/UI-ACCEPTANCE.md)。
 
 - `src/core.js`：数据契约校验、存储、版本、依赖与证据状态机。
 - `index.js`：Host 工具和人工命令适配，共用同一领域操作。

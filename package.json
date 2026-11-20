@@ -30,7 +30,6 @@
     "skills",
     "assets",
     "scripts/embed-mermaid.mjs",
-    "scripts/embed-git-comparison.mjs",
     "scripts/check-syntax.mjs",
     "cordis.patch.yml",
     "locale",

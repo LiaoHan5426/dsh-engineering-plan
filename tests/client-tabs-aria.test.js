@@ -29,8 +29,11 @@ test('arrow, Home and End keys move the roving focus', () => {
   assert.match(source, /document\.getElementById\("ep-tab-" \+ value\)/);
 });
 
-test('the tab order constant matches the four views in the original specification', () => {
-  assert.match(source, /const TABS = \["overview", "plan", "tasks", "resources"\];/);
+test('the tab order constant holds the three views the workbench now offers', () => {
+  assert.match(source, /const TABS = \["plan", "tasks", "resources"\];/);
+  // The old overview tab was folded into the planning tab: its readiness card, stats and agent
+  // actions now share one page, and the architecture block is a collapsed section inside it.
+  assert.doesNotMatch(source, /tab === "overview"/);
 });
 
 test('a disabled button says why through aria-disabled and title', () => {

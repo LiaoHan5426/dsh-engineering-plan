@@ -146,7 +146,7 @@ test('a refresh without any change is a no-op', async () => {
 
 function loadChangeHarness() {
   const start = source.indexOf('          const loadChange = ');
-  const end = source.indexOf('          async function command(', start);
+  const end = source.indexOf('          async function sendCommand(', start);
   assert.ok(start > 0 && end > start, 'loadChange not found');
   const expression = source.slice(start, end).trim().replace(/^const loadChange = /, '').replace(/;$/, '');
   const bindDelivery = extract('bindDelivery', '    ');
@@ -169,7 +169,7 @@ test('loading a change drops the gate verdict that belonged to the previous vers
 
 test('loadChange asks for a run refresh without depending on the helper existing', () => {
   const start = source.indexOf('          const loadChange = ');
-  const end = source.indexOf('          async function command(', start);
+  const end = source.indexOf('          async function sendCommand(', start);
   const body = source.slice(start, end);
   assert.match(body, /if \(typeof noteChangeLoaded === "function"\) noteChangeLoaded\(next\);$/m);
 });

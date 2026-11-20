@@ -36,7 +36,9 @@ test('offline preview isolates SVG and authenticates both message directions', (
 test('all three current draft sources retain editing and receive previews', () => {
   const view = source.slice(source.indexOf('          function architectureView()'), source.indexOf('          function evidenceMatrix()'));
   assert.match(view, /\["architecture", "sequence", "data-flow"\]/);
-  assert.match(view, /h\(MermaidPreview, \{ source: draft.diagrams\[diagram\]/);
+  assert.match(view, /h\(MermaidPreview, \{\s*source: draft\.diagrams\[diagram\] \|\|/);
+  assert.match(view, /diagram === "architecture" \? autoArchitectureDiagram\(draft\)/);
+  assert.match(view, /t\("autoDiagramHint"\)/);
   assert.match(view, /edit\(\{ diagrams: \{ \.\.\.draft.diagrams/);
   assert.match(source, /t\("dependencyHint"\)\),\s*dependencyDiagram\(\)/);
   assert.match(source, /observer.disconnect\(\)/);
@@ -45,9 +47,9 @@ test('all three current draft sources retain editing and receive previews', () =
 
 test('actual architecture component tree has unique sibling keys across repeated draft renders', () => {
   const editor = source.slice(source.indexOf('          function documentEditor('), source.indexOf('          function planningChecklist('));
-  const view = source.slice(source.indexOf('          function architectureView('), source.indexOf('          function evidenceMatrix('));
+  const view = source.slice(source.indexOf('          // The architecture picture is a fact about the plan'), source.indexOf('          function evidenceMatrix('));
   const h = (type, props, ...children) => ({ type, key: props?.key, children });
-  const render = Function('h', 'React', 'draft', 'busy', 'editable', 't', 'field', 'edit', 'MermaidPreview', 'button', 'setDiagram', 'diagram', 'editingPlan', 'documentPreview', 'deliveredDecisionsView', `${editor}\n${view}\nreturn architectureView;`)(h, { Fragment: 'fragment' }, { mode: 'standard', documents: {}, diagrams: {} }, false, true, x => x, () => h('textarea'), () => {}, 'preview', (key, action, disabled, active, props) => h('button', props, key), () => {}, 'architecture', true, () => h('p'), () => null);
+  const render = Function('h', 'React', 'draft', 'busy', 'editable', 't', 'field', 'edit', 'MermaidPreview', 'button', 'setDiagram', 'diagram', 'editingPlan', 'documentPreview', 'deliveredDecisionsView', 'textStatus', `${editor}\n${view}\nreturn { architectureView, autoArchitectureDiagram };`)(h, { Fragment: 'fragment' }, { mode: 'standard', documents: {}, diagrams: {}, tasks: [] }, false, true, x => x, () => h('textarea'), () => {}, 'preview', (key, action, disabled, active, props) => h('button', props, key), () => {}, 'architecture', true, () => h('p'), () => null, x => x).architectureView;
   let count = 0;
   function walk(node) {
     if (!node || typeof node !== 'object') return;

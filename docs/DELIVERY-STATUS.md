@@ -1,21 +1,29 @@
 # 原方案阶段交付状态
 
-更新：2026-11-20（第 144 轮）｜套件 838 项（837 pass / 1 skip）。**不作为整体完成声明**：本表按阶段列出实现与待办，只有「验证证据」一栏写下的真实读数才算证据。
+更新：2026-11-20（第 152 轮）｜套件 686 项（685 pass / 1 skip）。**不作为整体完成声明**：本表按阶段列出实现与待办，只有「验证证据」一栏写下的真实读数才算证据。
 
 「验证证据」一列只写真正发生过的读数：真实界面 DOM 读数、原生工具返回、真实子 Agent/命令运行。只有单元测试支撑的，会明确写「仅测试」。
 
 | 原阶段 | 已实现 | 验证证据 | 剩余工作 |
 |---|---|---|---|
-| P0 contract | 版本化规划、依赖任务、逐项证据、审批与版本失效、执行记录；四类只读查询（`gateStatus`/`readyTasks`/`scopeAudit`/`approvalBaselineStatus`）；人工专属动作与模型工具枚举分离；21 个人类可触发拒绝码的本地化映射 | 694 项自动回归；真实工具调用覆盖 gateStatus、readyTasks、scopeAudit、dispatchRuns、approvalBaselineStatus；README 与动作枚举由 `tests/readme-actions.test.js` 绑定 | 独立类型包与显式迁移体系 |
+| P0 contract | 版本化规划、依赖任务、逐项证据、审批与版本失效、执行记录；两类只读查询（`gateStatus`/`readyTasks`）；人工专属动作与模型工具枚举分离；21 个人类可触发拒绝码的本地化映射 | 673 项自动回归；真实工具调用覆盖 gateStatus、readyTasks、dispatchRuns；README 与动作枚举由 `tests/readme-actions.test.js` 绑定 | 独立类型包与显式迁移体系 |
 | P0 planner | 八份文档 + 六项自报就绪度 + 评审要求；三种运行时 Skill（planning/architecture-design/review），正文已与现有能力对齐 | 真实创建、保存、刷新、`context` 读取（含截断清单）；标准与轻量两种导出真实落盘；`skill-content.test.js` 防漂移 | 从代码分析到评审的完整真实需求闭环（需人工批准，尚未跑通） |
-| P0 storage | 原子写入、CAS、四把锁、历史快照、导出 + `manifest.json`（含 `stale` 旧投影）、不可变运行与 Git 观测（含路径清单） | 并发与双进程回归连续 8 轮无失败；真实导出 14/8/6 文件与 `stale` 三种读数；LF 行尾门禁覆盖 77 文件 | 大规模历史拆分与迁移 |
-| P0 policy | 人工审批、改版失效、依赖门禁、文件冲突（支持 `/` 目录前缀，冲突明细列出最多 3 对）、可选审批 Git 基线 | 真实读数：未批准时派发/验证被拒、`gateStatus` 列出 `APPROVAL_REQUIRED`、批准后状态流转放行「执行中」、基线卡片 `no_approval` 与旧结果清理；冲突明细**仅测试** | 真实批准后基线的五态读数、跨任务证据失效、冲突明细与在飞运行的界面读数 |
+| P0 storage | 原子写入、CAS、四把锁、历史快照、导出 + `manifest.json`（含 `stale` 旧投影）、不可变运行记录 | 并发与双进程回归连续 8 轮无失败；真实导出 14/8/6 文件与 `stale` 三种读数；LF 行尾门禁覆盖 77 文件 | 大规模历史拆分与迁移 |
+| P0 policy | 人工审批、改版失效、依赖门禁、文件冲突（支持 `/` 目录前缀，冲突明细列出最多 3 对） | 真实读数：未批准时派发/验证被拒、`gateStatus` 列出 `APPROVAL_REQUIRED`、批准后状态流转放行「执行中」；冲突明细**仅测试** | 跨任务证据失效、冲突明细与在飞运行的界面读数 |
 | P1 workflow | 单任务原生子 Agent 派发（幂等 requestId、结果返回不代表完成）、`cancelRun` 人工终止、`abandonRun` 残留预留放弃、unknown 人工结案 | 真实派发 run `2d330e17` returned（childId 真实）；真实验证 run `f9d8b388` 因 PowerShell 无 `printf` 失败并落证据；终止表单双门禁 + 跨宿主拒绝文案有读数；结案表单三项必填有读数 | 成功派发后完整收尾、成功终止（需当前宿主持有 job）、自动 DAG 编排、旧 Host 活动记录恢复、worktree 隔离 |
 | P1 verifier | 已批准单命令执行、独立结果记录（exitCode/signal/timedOut/aborted/sandbox）、执行参数四字段持久化、逐项证据与人工交付冻结 | 模拟 shell/jobs 回归；真实执行参数读数为「未记录」（v1 失败run 早于该特性），新记录路径由 runner/store 测试覆盖；`gateStatus` 的 `MISSING_EVIDENCE`/`NO_COMPLETED_TASK` 有真机读数 | 获批命令的成功运行与取消、可信验收映射、真实人工交付确认、批量检查 |
-| P1 UI | 四视图 + `tablist/tab/tabpanel` 语义 + roving tabIndex；五任务并行 DAG 的 SVG；三张 Mermaid 图（离线渲染、错误恢复）；Git 观测与批准基线卡片；交付门禁（核心判定）、改动范围、当前可开始、运行记录与四种运行表单；导出清单；双语与浅/深色 | 真机读数覆盖：四页签与 ARIA、并行 DAG 分叉合流坐标、并行/证据矩阵空标准、门禁三态与未知运行、范围审计四态、英文界面、浅色对比度缺陷修复、导出清单与 `stale` 提示、冲突/放弃草稿、轮询不覆盖编辑、派发草稿内容、`requestId` 稳定 | 正向闭环的整套界面读数（需批准）、成功终止与结案后的展示、像素级视觉验收（`browser_screenshot` 始终超时，只有计算样式与 DOM 读数） |
+| P1 UI | 四视图 + `tablist/tab/tabpanel` 语义 + roving tabIndex；五任务并行 DAG 的 SVG；三张 Mermaid 图（离线渲染、错误恢复）；交付门禁（核心判定）、当前可开始、运行记录与四种运行表单；导出清单；双语与浅/深色 | 真机读数覆盖：四页签与 ARIA、并行 DAG 分叉合流坐标、并行/证据矩阵空标准、门禁三态与未知运行、英文界面、浅色对比度缺陷修复、导出清单与 `stale` 提示、冲突/放弃草稿、轮询不覆盖编辑、派发草稿内容、`requestId` 稳定 | 正向闭环的整套界面读数（需批准）、成功终止与结案后的展示、像素级视觉验收（`browser_screenshot` 始终超时，只有计算样式与 DOM 读数） |
 | P2 agent-adapter | 使用原生父 Agent 路由的单任务派发 | 原生契约核实；外部 provider（codex/claude-code）实际 `availability: missing`，方案写入 `docs/EXTERNAL-AGENT-ADAPTER.md` | 独立外部 Agent 适配 |
-| P2 knowledge | 来源分类（reference/verified/assumption）、文档与发现导出、范围审计 | 核心保存/导出测试；`scopeAudit` 真机读数 | 项目知识服务接入 |
+| P2 knowledge | 来源分类（reference/verified/assumption）、文档与发现导出 | 核心保存/导出测试 | 项目知识服务接入 |
 ## 最近已核实证据
+- **第 152 轮**：`requiredApproval` 从元数据变成门禁归属——Agent 证据齐后推进 `completed` 被改写为 `awaiting-review`，只有 `user` 身份的推进才真正完成（`src/core.js:778`）；新增 `amendTask` 让 Agent 在实施中改任务内容（复用 `planTasks` 的依赖环与冲突校验，改验收标准清证据并退回 `running`）；规划页六项 readiness 改为只读徽标；`autoArchitectureDiagram()` 按任务依赖与 `affectedModules` 自动出图并随状态重画。真实界面读数：三页签、`.ep-notices` 显示「2 项送达阻塞」、规划页 `selects = 0`、架构折叠展开后自动图提示与 `iframe = 1`、任务看板八列含「待人工审核 · 0」。门禁读数：全套件 684 项（683 pass / 1 skip）、`npm run check` 三项通过。同时修掉一处真实的锁竞态（见验证记录第 152 轮末段）。闭环本身仅有 `tests/gate-automation.test.js` 支撑，标为「仅测试」。- **第 150 轮**：Git 能力整体下线——删除 `engineering_git` 工具、`gitObservations`/`approvalBaselineStatus`/`scopeAudit` 三个动作、审批的基线绑定与 `gateStatus.scope`，以及 `src/git-facts.js`/`src/git-operations.js`/`src/git-observation-store.js`/`src/git-comparison.js`/`src/scope-audit.js`；工具面收敛为 `engineering_plan`/`engineering_dispatch`/`engineering_verify`。客户端删掉 58 个文案键、173 行内嵌比较算法、22 个纯函数、9 个组件（client.js 5196 → 4545 行），`resources` 页签保留。门禁读数：全套件 673 项（672 pass / 1 skip，退出码 0）、`check-syntax` 18 文件、`check-locale-keys` 与 `check-declaration-order` 通过。**尚未**重载页面复核四页签与三个工具行的实际渲染。
+- **第 149 轮**：Git 执行能力下线——删除 `src/git-collector.js`（子进程 + `git status --porcelain=v2` 解析），新增 `src/git-facts.js` 只校验调用方经 DSH shell 采集的事实；`engineering_git` 动作 `capture`→`record`，`compare` 必须同时带当前 `observation`；同一 `requestId` 携带不同事实返回 `REQUEST_CONFLICT`。门禁读数：全套件 836 项（835 pass / 1 skip，退出码 0）、`npm run check` 语法 25 文件/本地化键/声明顺序三项通过、`check-doc-counts` 通过。专项 `tests/git-tool.test.js` 15 项断言插件 ctx 内无 `shell`。**尚未**在真实宿主上用两条真实采集事实跑过 record/compare。
+- **第 148 轮**：会话降噪——常规命令/工具行落到 `.ep-command-quiet`/`.ep-tool-quiet` 且不生成原始 JSON 节点（旧会话 3423 次命令合计 4,330,988 字符不再进 DOM）；错误、告警、阻塞、unknown 运行升为 `.ep-*-alert` 并默认展开；工作台顶部 `.ep-notices` 只列需要人工决策的项。门禁读数：全套件 860 项（859 pass / 1 skip）、`npm run check` 三项通过、`check-doc-counts` 通过。
+- **第 147 轮**：三项需求收口——侧栏改 `ctx.inject(["betterSidebar"], …)` 正规动态依赖；工具行改从 `block.content` 的 text 块解析（`ToolResultNode` 无 `result` 字段）；新增 `conversation.chat.commandview`（key `engineering`）把命令 JSON 折成几行，原契约不变。门禁 855 项（854 pass / 1 skip），`npm run check` 全绿。重载后真实读数：页签条出现两个「工程研发」（会话页签 + 右侧栏页签），`.ep-compact` 计数 1；实测 `/engineering {"action":"list"}` 折成「工程研发 · list · 4 个变更」+ 四行变更明细，原文与 JSON 收进 `<details>`（1256/1500 字符）。工具行的解析路径仍仅结构测试覆盖。
+- **第 146 轮**：对话流里的工程研发行改为摘要 + 可展开原文（`tool.call.toolview` 四个 key，原文截断 1200 字符）。真实读数待一次页面刷新后补；本轮只完成了代码与结构测试（4 项）。
+
+- **第 145 轮**：工程研发可进右侧栏，与对话并排（`ctx.betterSidebar.registerTab`，id `engineering-planner:workbench`，`single: true`，同一 Panel 加 `compact`）。真实读数：会话视图页签出现「工程研发」；选中变更后出现「在侧边栏打开」；点击后右栏多出「工程研发」标签，与「Git」「任务管理」并列；`.ep-layout` 计数 2（compact 1、非 compact 1）。过程中修掉两个真实故障：`inject` 对象形式使整个客户端模块不加载、`ctx.betterSidebar` 直接读取触发 Cordis 未声明服务异常导致 `apply` 中止。侧栏入口卡片与窄栏布局的真实读数已记录，尚无像素截图（`browser_screenshot` 仍返回 DOM 渲染图）。
+
 - 第 144 轮：跨宿主残留运行的人工释放出口已实现——`terminateRun`（命令专属，模型不可调）先由 Host 向 jobs 注册表求证不可触达，再要求用户填写终止理由/核实依据/确认项，core 记为 `run-terminated-unattached` 并把运行结算为 `cancelled`；带 `abandoned` 而无 `terminationEvidence` 的取消被 store 拒绝。证据为 `tests/terminate-run.test.js` 7 项与 `tests/client-termination.test.js` 5 项，界面渲染未取真实读数。
 
 - 第 143 轮：浅色主题下「质量门禁」页实测——卡片正文 18.9:1、`.ep-muted` 5.8:1、`.ep-warn`/`.ep-success`/`.ep-badge`/矩阵单元格/插件页签均 18.9:1，全部通过 AA；宿主壳层视图页签 4.23:1（宿主 token，非插件）。切回深色后 `body rgb(21,21,23)`、卡片 `rgb(35,35,36)` 复原。
@@ -216,4 +224,4 @@
 4. 再考虑自动 DAG 编排、旧 Host 活动记录的恢复协议、worktree 隔离；在单任务执行尚未取得「批准→派发→验证→证据→交付」完整成功链之前不扩展。
 5. P2 外部 Agent 与知识服务保持明确待办。
 
-详细证据见同目录 VERIFICATION.md、GIT-OBSERVATIONS.md、APPROVAL-BASELINE.md 与 UI-ACCEPTANCE.md。未新增 Git 提交或推送。
+详细证据见同目录 VERIFICATION.md 与 UI-ACCEPTANCE.md。未新增 Git 提交或推送。

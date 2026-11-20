@@ -60,14 +60,11 @@ test('the Windows shell caveat is present in both execution-facing skills', () =
   }
 });
 
-test('review and planning explain the read-only scope audit', () => {
+test('the skills no longer advertise the removed scope audit', () => {
   const review = read('engineering-review');
   const planning = read('engineering-planning');
-  for (const text of [review, planning]) {
-    assert.match(text, /scopeAudit/);
-    assert.match(text, /expectedFiles/);
-  }
-  // The audit is evidence only; the guidance must not imply it blocks anything.
-  assert.match(review, /不拦截/);
-  assert.match(planning, /未声明/);
+  // The audit read Git path lists the plugin no longer records; the guidance must not promise it.
+  for (const text of [review, planning]) assert.equal(/scopeAudit/.test(text), false, 'scopeAudit is removed');
+  // Task scope is still declared, which is what file-conflict detection uses.
+  assert.match(planning, /expectedFiles/);
 });

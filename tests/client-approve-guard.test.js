@@ -69,7 +69,7 @@ test('the approve button is disabled for an incomplete plan and explains why', (
   const review = source.slice(source.indexOf('change && reviewOpen && h("section", { className: "ep-card" },'),
     source.indexOf('                h(\n                  "nav",'));
   assert.match(review, /change\.status === "draft" && planIncomplete\(change\) &&\s*\n\s*h\("p", \{ className: "ep-warn" \}, t\(planIncomplete\(change\)\)\)/);
-  assert.match(review, /button\("approve", \(\) => run\(approvePlan\),\s*\n\s*unsettled \|\| !!approvalBaselineBlock\(change, gitList, approvalBaseline\) \|\|/);
+  assert.match(review, /button\("approve", \(\) => run\(approvePlan\),\s*\n\s*unsettled \|\|/);
   // The button now also carries the reason for assistive tech, so assert the guard prefix.
   assert.match(review, /!!planIncomplete\(change\), true,/);
   assert.match(review, /"data-reason": unsettled \? t\("saveFirst"\)/);
@@ -77,7 +77,7 @@ test('the approve button is disabled for an incomplete plan and explains why', (
 
 test('the engine refusal never reaches the screen as bare INCOMPLETE_PLAN text', () => {
   const start = source.indexOf('          async function run(action) {');
-  const end = source.indexOf('          async function list() {', start);
+  const end = source.indexOf('          async function list(', start);
   assert.ok(start > 0 && end > start, 'run() not found');
   const body = source.slice(start, end);
   assert.match(body, /setError\(errorDisplay\(message\)\);/);

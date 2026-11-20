@@ -1,4 +1,76 @@
 # Changelog
+
+## 0.3.0 — 第 155 轮：瘦身与一次误删的恢复
+
+- 精简不再使用的词条：删掉 13 个只声明不引用的 i18n 条目（`editArchitecture`、`advancedDesign`、`liteModeHint`、`standardModeHint`、`selectChange`、`diagramHint`、`planRequest`、`taskRequest`、`verifyRequest`、`sourceOnly`、`emptyArchitecture`、`errUnknownCode`、`commandRequest`，共 14 处声明）。全量套件与 `npm run check`（语法/词条重复/声明顺序）保持全绿。
+- 删掉 `src/termination-evidence.js` 里无人引用的 `export const TERMINATION_SCOPE = SCOPE;`；`SCOPE` 常量本身仍在三处使用，只去掉多余的再导出。
+- 审查结论：仓库真正的体量在 `client.js` 的内嵌 mermaid（单行 3.7MB，占 93%），由 `scripts/embed-mermaid.mjs` 从 `assets/mermaid-11.17.2.min.js` 生成、为 iframe `srcdoc` 自包含所必需；手写客户端代码约 260KB。`readyCodes` / `planErrorKey` / `errorMessageKey` 三个函数在运行时没有调用者，但被若干源码切片测试当作断言对象引用，删掉会让测试失去覆盖面，因此保留。
+- 事故与恢复（如实记录）：本轮为「删死词条」写的脚本先用 `^ {6}],$` 猜块结束、后用 `indexOf("\n      };")` 猜 words 块结尾，两次都猜错位置，第二次连带删掉 words 之后约 67KB / 974 行真实代码，`client.js` 结构被破坏到无法解析。工作区版本（含第 153/154 轮的读缓存、`QUIET_ACTIONS`、`alertBlockers`、命令卡 `inferAction`/`commandTitle`/`commandDetail`）此前没有提交过，`git` 只有 HEAD 与更早的 blob，`git stash`、VS Code History、DSH 的 Code Cache 都取不到源码文本。
+- 恢复方式：以 HEAD 版 `client.js` 为底，把幸存的工作区前端（words 之后的头部、文件尾部）重新拼接，按测试失败逐项补回被牵连的 11 个函数（`planApproved`、`revisionConflict`、`dispatchRequestBlock`、`dispatchResolutionKey`、`dispatchResolutionHistory`、`resetDispatchConfirmations`、`bindVerificationResolution`、`abandonmentEligible`、`strandedNotice`、`abandonmentKey`、`bindAbandonment`、`abandonmentHistory`、`abandonmentPayload`）与 `awaiting-review` 词条/状态列，最后套件 686 项（685 pass / 1 skip）、`npm run check` 全过、夹具 `--mode check` 21/21、工作台在真实 GUI 里读数正常。第 153/154 轮的行为确认仍在（`readCache`、`sharedRead`、`inferAction`、`commandDetail` 等符号在位）。
+- 教训写进流程：改 `client.js` 这种带巨型内嵌字符串的文件，定位块边界必须用「花括号/缩进计数」而不是猜结束串；批量删声明前必须同时 `grep tests/`，因为测试引用源码字符串也算引用；改动前先落一份工作区备份，`git` 只保护提交过的版本。
+
+## 0.3.0 — 第 153 轮：工作台不再往会话里刷读命令
+
+- 修掉「只要在工程研发页面点一下，会话轨迹就冒一条命令卡」的观感问题。根因有两处：工作台同时挂载两份（`conversation.view` 与侧栏 tab），每次操作两处各读一次；且每次 `loadChange` 后又串行触发 `verificationRuns` / `gateStatus` / `readyTasks` / `dispatchRuns`。实测同一交互在 transcript 里成对出现（119 条 `command/run`，多条同毫秒）。
+- 读命令共享缓存：新增 `readCache` / `sharedRead(key, ttl, produce)`，同一次读在两份挂载间复用同一个未决 Promise，TTL 内命中直接返回（`list` 1500ms、`get` 800ms、`gateStatus`/`readyTasks` 1500ms、`verificationRuns`/`dispatchRuns` 1200ms）。`command()` 现拆成 `sendCommand()`（原实现）+ 读缓存/写标记两层。
+- 写操作本地合并不再重读列表：`markWrite()` 记录写时刻，`mutate`/`create`/`save`/`abandonRun`/`terminateRun`/`resolveDispatchUnknown` 用返回的 `data.change` 经 `mergeSummary()` 就地更新列表行（投影与 `src/core.js:562` 一致），不再 `await list()` 打一次命令；文件监听在写完 1.2s 内跳过自读。
+- 焦点/切页不再触发读：`focus`/`visibilitychange` 改成 `wake()`，距上次同步不足 30s 时不动。
+- 读命令不再占会话行：`QUIET_ACTIONS`（`list/get/gateStatus/readyTasks/verificationRuns/dispatchRuns/context/export`）在 `EngineeringCommandRow` 里于 `severity === "quiet"` 时返回 `null`，transcript 仍留档，聊天流里只在出错/告警/未决运行时出现。
+- 常态进度不再当告警：新增 `ALERT_BLOCKER_CODES`（`UNRESOLVED_UNKNOWN`、`MISSING_EVIDENCE`、`APPROVAL_REQUIRED`）与 `alertBlockers()`，`toolSeverity`/`commandSeverity`/`commandAlert` 与面板通知条 `openItems` 都改用它——「任务还没做完」「还没完成任务」「有在跑的运行」是进行中的正常形状，不再顶一条「需要你处理」。
+- 实测（真实 GUI，`location.reload()`）：刷新 + 打开变更 A 由约 10 条命令降到 5 条（`get` + `verificationRuns` + `gateStatus` + `readyTasks` + `dispatchRuns`，一次一套）；点「刷新列表」1 条；顶部「2 项送达阻塞」消失，只保留 B 的「1 项待你确认完成」；会话里的 `工程研发 · list` 卡只剩真实告警那一类。
+- 测试：新增 `tests/client-file-watch.test.js` 的缓存与 quiet 用例，改写 `client-approve-guard`、`client-notice` 与五个 `async function command(` 切片锚点为 `sendCommand`。套件 685 项（684 pass / 1 skip），退出码 0。
+- 会话里的命令卡也按同一套逻辑重做（用户指出「和别的不一样」）：命令注册用了 `recordInput: false`，`CommandNode.args` 永远为 null，所以每一行都退化成「list」；现在 `inferAction()` 从作答形状还原动作（changes→列表、blockers→门禁检查、runs→运行记录、ready→可开始任务、change→变更详情），行首写 `工程研发 · 门禁检查` 这样的人话。
+- 行内不再铺原始 JSON：删掉 `commandRaw`/`COMMAND_RAW_LIMIT`，`commandDetail()` 只给人类句子（一条变更一行、blocker/warning 的 `code · taskId`、失败的运行各一行），`details` 默认收起、不再自动展开；只有真正的告警才在行尾追加「N 项需要你处理」。
+- counts 与 alert 不再重复计数（曾出现「1 条告警 · 1 条告警」），`commandChangeParts` 也认得裸 `changeId` 载荷，摘要不再只剩 `v1 · rev 14`。
+- 夹具 A 的 A1 现在带一条 succeeded 的验证记录（`scripts/test-history.mjs` 的 `seedRun()`），门禁不再报 `NO_SUCCEEDED_COMMAND` ——那条告警原本是夹具自己制造的噪声。`--mode check` 21/21 通过。
+
+## 0.3.0 — 第 152 轮：让 DSH 自己把任务推完
+
+- 补上状态机的「待人工审核」态。`requiredApproval` 以前只是一个写进 `tasks.json` 的元数据字段，现在它决定收尾归属：`true` 的任务在证据齐全后由 Agent 推进 `completed` 会被改写成 `awaiting-review`（`src/core.js:778`），只有 `actor.kind === "user"` 的推进才真正完成；`false` 的任务证据齐即自动完成。`status()` 在存在 `awaiting-review` 任务时把整个变更报为 `awaiting-review`。
+- 新增 `amendTask` 动作（`changeId`、`taskId`、`taskPatch`）：Agent 在实施中发现新情况时自己改任务——标题、描述、依赖、声明文件、验收标准、验证命令与四个元数据字段都可改。实现上是把任务投影后交给 `planTasks` 重算，依赖环/重复 id/文件冲突沿用 `save` 的同一套规则；验收标准变了会清掉该任务及变更级证据并把 `verifying` 退回 `running`，`history` 记一条 `task-amended`。
+- 规划里的六项「准备状态」不再要求人工逐项点选，改为只读徽标展示；人工要做的只有批准方案、确认需要人工收尾的任务、确认交付。
+- 架构图由规划自动生成：`autoArchitectureDiagram()` 用任务依赖与 `affectedModules` 画出 `flowchart LR`，按 `completed` / `awaiting-review` / `running` 着色，任务一动就重画；手写 `diagrams.architecture` 存在时仍以手写为准。
+- 客户端：新增 `awaiting-review` 状态色与八列看板、任务卡片「确认完成」按钮、通知条「N 项待你确认完成」。
+- 修掉一处真实的锁竞态：三个 store 获取锁时先 `open('wx')` 建空文件、再单独写 `{ pid, createdAt }`，进程在这两步之间被杀就留下没有持有者信息的空锁（`tests/run-record-crash.test.js` 偶发报「the refusal must name the holder」）。新增 `src/lock-retry.js` 的 `createLockFile()`，把 `open` 与写入紧挨执行、`stat` 放到写入之后。
+- 测试：新增 `tests/gate-automation.test.js`（5 项）与 `tests/client-automation.test.js`（6 项），改写 `tests/task-fields.test.js` 与 `tests/client-mermaid.test.js` 的相应断言。套件 684 项（683 pass / 1 skip）。
+## 0.3.0 — 第 151 轮：把界面收回到一次能看懂
+
+- 页签从四个减到三个：开发规划、任务看板、质量门禁。原「总览」页只有一张状态卡和一张架构图，本身没有独立内容，整体并入开发规划；架构文档改成规划页里的折叠块（`details`），只在展开时挂载 `architectureView()`，图与文件列表都不再随页签切换重建。
+- 解除全局忙碌锁。`button()` 原来把 `busy` 并进 `locked`，任何一次远程调用（列表、刷新、加载变更）期间整个面板的按钮全部置灰，观感与卡死无异；现在只锁调用方自己声明的 `disabled` 与不可编辑时的写操作，重复点击由 `run()` 的 `lock` 拦下并给一条 `busy` 提示。
+- 标题下新增 `.ep-next` 提示条：一句话说明下一步，右侧直接给对应主按钮（计划待评审 → 评审计划；已批准 → 任务看板；已完成 → 去确认交付）。原先这句提示是灰色小字，而操作按钮在另一行，删除重复的「评审计划」按钮。
+- 任务页默认列表视图：7 列看板只在宽屏排得开，默认进看板反而每次都要切回来。
+- 上下文、导出、交接三个低频按钮与两段说明收进「上下文、导出与交接」折叠块；新增文案键 `moreActions`、`archSection`、`goDelivery`。
+- 测试：`tests/client-tabs-aria.test.js` 末用例改为断言三元素 `TABS` 且源码不再出现 `tab === "overview"`。套件 673 项（672 pass / 1 skip）。
+
+## 0.3.0 — 第 150 轮：插件不再接触 Git
+
+- 上一轮把采集交给调用方，这一轮干脆把整条 Git 链路从插件里删掉。定位是流程控制：改动范围、代码基线、差异比较都是 DSH 与调用方 Agent 的事，插件不该为了这些自带存储、比较算法与面板。删除的能力包括：`engineering_git` 工具、动作 `gitObservations` / `approvalBaselineStatus` / `scopeAudit`、审批时的 `baselineObservationId` 绑定、`gateStatus.scope`、客户端整套 Git 观测与批准基线 UI，以及 `src/git-facts.js`、`src/git-operations.js`、`src/git-observation-store.js`、`src/git-comparison.js`、`src/scope-audit.js`。
+- 工具面收敛为三个：`engineering_plan`、`engineering_dispatch`、`engineering_verify`。`/engineering` 命令的 JSON 文本仍是机器契约（`tests/host.test.js`、`tests/verification-tool.test.js` 直接解析），未改动。
+- 审批记录只保留 `planVersion`/`actor`/`recordedAt`：没有观测可绑定，`approvalRevision` 与 `codeBaseline` 一并去掉；导出里的「Approval code baseline」段随之删除。
+- `gateStatus` 不再返回 `scope`，也不再为了算路径漂移去读观测。任务的 `expectedFiles` 仍在，用途回到它本来该有的地方——同一文件的并行派发冲突判定。
+- 客户端删掉 58 个只服务这些能力的文案键、173 行内嵌比较算法、22 个纯函数、9 个组件与 7 组状态；`resources` 页签保留（证据矩阵、交付评审、运行记录都在里面），只是少了范围审计那一行。行数 5196 → 4545。
+- 文档：删除 `docs/GIT-OBSERVATIONS.md` 与 `docs/APPROVAL-BASELINE.md`；README 删掉「Git 观测」整节与只读动作里的两条；`skills/engineering-review/SKILL.md` 删掉「对照声明的改动范围」一节；`skills/engineering-planning/SKILL.md` 把 `expectedFiles` 的作用改回派发冲突。
+- 测试：删除 19 个 Git/基线相关测试文件（`client-git`、`client-git-comparison`、`git-tool`、`git-facts`、`git-comparison`、`git-observation-store`、`approval-baseline`、`scope-audit` 等），宿主侧工具数与 disposer 数改成 3/7。套件 673 项（672 pass / 1 skip）。
+
+## 0.3.0 — 第 149 轮：插件不再执行 Git
+
+- 下线自行采集：删除 `src/git-collector.js`（起子进程、拼 `git status --porcelain=v2`、解析输出那套）。Git 事实改为由调用方 Agent 用 DSH shell 采集后随工具调用提交，插件只做校验、归一化与摘要。这符合插件定位——借助 DSH 的能力完成流程控制，而不是自带一套执行器。
+- 新增 `src/git-facts.js`：`gitFactsParameters`（head/headState/repositoryRoot/trackedPaths/untrackedPaths/stagedDiff/worktreeDiff/limitations，2000 路径上限、16 MiB diff 上限）、`validateGitFacts`（拒绝未知字段、accessor、绝对路径、`..` 逃逸、NUL、`\ufffd`、head 与 headState 矛盾）、`buildGitObservation`（仓库根必须等于工作区，否则 `repository_outside_workspace`；调用方声明 `limitations` 时记录为 `partial`）。模块内无子进程、无文件读取、无 shell 调用。
+- `engineering_git` 动作由 `capture`/`compare` 改为 `record`/`compare`：`record` 必须携带 `observation` 且禁止 `baselineId`；`compare` 必须同时携带当前 `observation` 与 `baselineId`——比较需要当前读数，插件不再替调用方采样。旧 `capture` 信封仍可读，重放时按 `record` 绑定。
+- 重放判定把事实算进请求身份：同一 `requestId` 携带不同事实时返回 `REQUEST_CONFLICT`，不再默默返回旧观测。比对字段为 `head`/`headState`/`dirty`/三项摘要/`untrackedCount`/`changedPaths`/`untrackedPaths`/`limitations`，因此存储信封无需保留原始事实。
+- `GitObservationStore` 的 request 校验接受 `record`（`capture` 作为旧拼写保留可读）。
+- 客户端同步：请求模板改 `record` 并内置 `observation` 空模板；`gitRequestHint`/`gitPrompt` 明确写出先采集哪些 DSH shell 命令再填 `observation`；文案键 `gitCapture` → `gitRecord`。
+- 门禁脚本修正：`scripts/check-doc-counts.mjs` 的 `verificationClaim` 原来对 `docs/VERIFICATION.md` 里所有「全套件 N 项」取**最大值**，隐含套件只增不减。本轮删掉 36 项采集器测试，套件从 863 降到 836，最大值仍指向历史条目，脚本持续误报。改为取文档中**第一条**声明（文件是从顶部逐轮追加的），并更新 `tests/check-doc-counts.test.js` 的用例（含 836/863 混排的收缩场景）。
+- 测试：删除 `tests/git-collector.test.js`（36 项，随采集器下线）；重写 `tests/git-tool.test.js`（15 项，无 shell 桩，断言 `Object.hasOwn(ctx,'shell') === false`）；新增 `tests/git-facts.test.js`（9 项，含"模块内不得出现子进程/shell API"的静态断言）；`tests/git-admission.test.js`、`tests/client-git.test.js` 同步新动作与模板。套件 836 项（835 pass / 1 skip）。
+
+## 0.3.0 — 第 148 轮：会话里的通知式展示
+
+- 会话行分两级。常规调用（成功且无告警、无阻塞、无 unknown 运行）落到 `.ep-command-quiet` / `.ep-tool-quiet` 的暗色单行；错误、`warnings`、`blockers`、`state: unknown` 的运行升为 `.ep-*-alert`，带左边线、加粗并默认展开。
+- 安静行不再生成原始 JSON 节点，也不再计算 `commandRaw`/`toolRaw`。旧会话 `session-d428891f` 里 3423 次 `/engineering` 共 4,330,988 字符（每次中位 1250），这些文本此前会逐条进入 DOM；现在只有提醒行携带原文。
+- 工作台顶部新增通知条 `.ep-notices`：只在「计划待你评审」「送达阻塞 N 项」「运行状态待确认」出现，列表为空时不渲染；点击跳到对应页签。提醒集中到常驻侧栏，会话里不再逐行复述状态。
+- 新增 `tests/client-notice.test.js` 5 项；`tests/client-toolview.test.js`、`tests/client-command-row.test.js` 的断言同步为 `ep-tool/ep-command-<severity>` 与 `open: severity === "alert"`。套件 863 项（862 pass / 1 skip）。
+- 修掉「循环输出」的执行层真因：工作台每 5 秒执行一次 `/engineering {"action":"list"}`，而 DSH 的命令生命周期写入没有静默通道（`@deepseek-ai/dsh-commands/lib/index.js:312` 的 `command/run`、`:319` 的 `command/done`，`recordInput:false` 只省略参数），命令因此逐条进转录。改为监听 `.dsh/engineering/changes` 的 `remote.workspaceFiles.changes` 帧流，700 ms 去抖、120 s 仅可见时兜底、effect 依赖收窄到 `[props.sessionId]`；新增 `tests/client-file-watch.test.js` 3 项锁定「不得再出现 5 秒轮询」。
+- draft 的送达阻塞不再算提醒：新增 `draftGate(view)`（`view.status === "draft"`），在 `toolSeverity`/`toolAlert`/`toolSummary`/`commandSeverity`/`commandAlert` 五处排除 `blockers`——否则每个 draft 变更都带着 7 项预期阻塞（`APPROVAL_REQUIRED`、`TASK_NOT_TERMINAL` 等）亮成通知。
 - 记录正向闭环首次真实跑通：派发 runId `42a53888-…`、验证 runId `5f4858d2-…`（exit 0）、四条证据、`completed` revision 10、`gateStatus.ready true`；交付确认仍待用户本人。
 
 - 文档门禁补上 README 的通过数：`readmeTally` 校验「N 项（P 通过、S 跳过）」三项自洽且与实测一致（第 127 轮同类漂移的第二个面）。
@@ -18,6 +90,29 @@
 - 新增 `scripts/check-declaration-order.mjs` 与 `tests/declaration-order.test.js`（5 项），并入 `npm run check`。
 - 记录：浅色主题下「质量门禁」页对比度实测全部通过 AA（正文 18.9:1、次要文字 5.8:1）；宿主壳层页签 4.23:1 属宿主问题。
 - 新增人工动作 `terminateRun`：释放「已启动但 job 句柄不在本进程」的运行。Host 先用 jobs 注册表证伪可触达性，用户填写核实依据后记账为 `run-terminated-unattached`；带 `abandoned` 而没有 `terminationEvidence` 的取消被拒绝。
+## 0.3.0 — 第 147 轮：三项需求收口
+
+- 侧栏改用正规动态依赖 `ctx.inject(["betterSidebar"], …)`：服务就绪后才注册页签，不再靠 `ctx.get` + try/catch 手动取值。
+- 工具行改从 `block.content` 的 text 块解析返回 JSON（`ToolResultNode` 没有 `result`/`output`），参数优先 `block.call.argsRaw`；摘要计数改走双语键。
+- 新增 `conversation.chat.commandview`（key `engineering`）：`/engineering` 的 JSON 文本保持机器契约不变，客户端折成「工程研发 · list · N 个变更」+ 每变更一行，列表最多 8 行，原文截断 1500 字符。
+- `tests/client-command-row.test.js` 5 项、`tests/client-toolview.test.js` 5 项、`tests/client-sidebar.test.js` 7 项；套件 855 项（854 pass / 1 skip）。
+
+## 0.3.0 — 第 146 轮：对话流里的工程研发行
+
+- 四个工具在 `tool.call.toolview` 各注册一行：摘要 `工程研发 · plan · list · 4 个变更`，`<details>` 展开原文并截断到 1200 字符。
+- 行不含 hook，只用原生 `details/summary/pre`。
+- `tests/client-toolview.test.js` 4 项；套件 849 项。
+- （第 147 轮修正：摘要恒为空，因为读的是并不存在的 `block.result`/`block.output`。）
+
+## 0.3.0 — 第 145 轮：工程研发可进右侧栏
+
+- 新增 `ctx.betterSidebar.registerTab`：页签 id `engineering-planner:workbench`、`single: true`、`order: 60`，复用同一 `Panel` 并加 `compact`。
+- 全宽视图新增「在侧边栏打开」入口（`openTab({ type })`）。
+- `betterSidebar` 改为可选服务，`inject` 保持字符串数组。
+- （第 147 轮修正：`ctx.get` 只是让 `apply` 不中断，依赖从未声明；改为 `ctx.inject(["betterSidebar"], …)`。）
+- 侧栏无会话输入框时，「填入会话」回退为复制到剪贴板。
+- `tests/client-sidebar.test.js` 7 项；套件 845 项。
+
 ## 0.3.0
 
 ### 观测记录的崩溃注入

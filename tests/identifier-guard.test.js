@@ -7,7 +7,7 @@ import { EngineeringStore } from '../src/core.js';
 
 // Audit finding: core's identifier regex accepted Windows device names, so a changeId such
 // as "nul" reached storage while every other store already refused it. The guard must be
-// uniform with dispatch/verification/git stores and must not reject ordinary ids.
+// uniform with the dispatch and verification stores and must not reject ordinary ids.
 test('core identifier refuses Windows device names before touching storage', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'identifier-guard-'));
   t.after(() => rm(root, { recursive: true, force: true }));

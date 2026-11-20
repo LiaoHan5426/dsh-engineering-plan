@@ -2,6 +2,91 @@
 
 环境：Windows，DSH 0.2.2-rc.5，desktop profile，Node.js（DSH 自带运行时）。
 
+## 第 152 轮：让 DSH 自己把任务推完
+
+用户的原话是三条要求加一句补充：「用户通过对话，自动生成相关规划，确认后 dsh 自动生成相关的任务」「dsh 完成相关任务自行调整任务状态，包括任务内容因为可能有新发现需要调整」「质检门禁，不需要人工审核的自动完成，需要人工审核的对应状态改为待人工审核，由人工确认」「架构图由规划后自动生成，并随着任务完成自动优化调整」。
+
+改动前的实际形态：`save` 的 `patch.tasks` 已经能把规划里的任务直接落成 `change.tasks`（`planTasks` 统一分配 id 与初始状态），所以「确认后生成任务」不需要新通道；但 `requiredApproval` 只是元数据，证据齐了 Agent 自己就能把任务推成 `completed`，门禁形同虚设；任务内容一旦落盘就没有修改入口，只能 `replan` 整份方案；六项准备状态要人工逐个点选；架构图完全依赖 Agent 手写 mermaid。
+
+四处改动：
+
+1. `src/core.js:778` 把收尾归属接进状态机：`target === 'completed' && t.requiredApproval && actor.kind !== 'user'` 时目标改写为 `awaiting-review`，证据门禁条件相应扩为 `target === 'completed' || target === 'awaiting-review'`；`status(s)` 见到 `awaiting-review` 任务即把变更本身报为 `awaiting-review`。`awaiting-review` 的合法出边保留 `running`/`blocked`/`cancelled`/`completed`，人工确认就是一次 `user` 身份的 `completed`。
+2. `amendTask`（`src/core.js:724`）让 Agent 改自己的任务。`taskPatch` 走白名单（`title`/`description`/`dependencies`/`expectedFiles`/`acceptanceCriteria`/`verificationCommands`/`affectedModules`/`executor`/`requiredApproval`/`maxRetries`），实现上把任务投影成完整任务对象再交给 `planTasks`，因此依赖环（`TASK_CYCLE`）、重复 id、文件冲突与 `save` 完全同源，不存在第二套校验；改到验收标准时清空该任务证据与变更级证据，`verifying` 退回 `running`，`history` 记 `task-amended` 并保留 `before`/`after`。
+3. 客户端 `planningChecklist` 去掉 `updateSection` 与六个 readiness 下拉，只读展示「已准备/待准备」徽标；任务看板补 `awaiting-review` 列，任务卡片在 `awaiting-review` 时给「确认完成」按钮（一次 `user` 身份的 `transition`）；通知条增加 `reviewTasks` 计数。
+4. `autoArchitectureDiagram(view)` 用 `tasks` 的依赖与 `affectedModules` 首项分组生成 mermaid，节点按状态着色（`completed` → done，`awaiting-review` → review，`running`/`verifying` → active，其余 idle）；`architectureView` 的 `source` 改为 `draft.diagrams[diagram] || (diagram === 'architecture' ? autoArchitectureDiagram(draft) : '')`，于是手写图优先、没写就有自动图，并提示「按任务与依赖自动推导，任务一动就重画」。
+
+过程中自己踩的坑：`amendTask` 的实现一开始想按 `expectedRevision` 重算 `planVersion`，会让同一份方案在只改标题时版本号也跳；改成沿用 `change.planVersion`、只把 `expectedRevision` 用于并发校验后恢复正常。另一次是 `tests/client-mermaid.test.js` 用注释行做切片起点，注释一改就取错函数体，已把断言改为按注释定位并同时导出两个函数。
+
+门禁读数：`node --test tests/*.test.js` → 全套件 686 项（685 pass / 1 skip / 0 fail，退出码 0）；`npm run check` → syntax ok、locale keys ok、declaration order ok；`node scripts/check-doc-counts.mjs` 在文档计数更新前如实报错（README/VERIFICATION/DELIVERY-STATUS 声称 673、实际 684），按 684 项 / 683 pass 修正后归类为文档计数同步。
+
+真实界面读数（页面 reload 后 `browser_eval`）：页签为「开发规划 / 任务看板 / 质量门禁」；选中 running 变更后 `.ep-notices` 显示「2 项送达阻塞」、`.ep-next` 为「下一步：跟踪任务阻塞；进入验证后在质量门禁记录实际验收证据。」并给出「任务看板」按钮；规划页 `selects = 0`（readiness 已无可交互下拉）；展开「架构与设计文档」出现提示「按任务与依赖自动推导，任务一动就重画；要固定图示就在架构文档里画。」且 `iframe = 1`；任务看板八列为「待执行 / 执行中 / 验证中 / 待人工审核 / 已阻塞 / 失败 / 已完成 / 已取消」，本变更「待人工审核 · 0」。
+
+### 顺带修掉的一处锁竞态
+
+收口时全量套件在 `tests/run-record-crash.test.js:68` 偶发失败：「the refusal must name the holder」——refusal 的 code 是 `LOCK_BUSY`，但消息是「the lock file names no holder」。原因不是测试激进：三个 store（`src/core.js`、`src/dispatch-store.js`、`src/verification-store.js`）获取锁都是 `fs.open(lock, 'wx')` 建空文件、再单独 `writeFile({ pid, createdAt })`。子进程在这两步之间被 `SIGKILL`，锁文件就永远是一个空文件：锁held 着，却没有任何持有者信息可报。
+
+修法：`src/lock-retry.js` 新增 `createLockFile(lock, payload)`，把 `open` 与 `writeFile` 紧挨着执行、`stat` 放到写入之后，三个 store 统一改用它；写入失败时关句柄并删掉半成品再抛。测试侧连跑 5 轮共 75 项（含两个 crash 用例）全绿，随后全量 684 项 683 pass / 1 skip / 0 fail。
+仍未做的：这一轮没有跑一次完整的真实闭环（真实 Agent 经 `amendTask` 改任务、证据齐后落 `awaiting-review`、人工确认完成）。上面的读数覆盖界面与门禁，闭环本身目前只有 `tests/gate-automation.test.js` 支撑，按本文件惯例标为「仅测试」。
+## 第 151 轮：把界面收回到一次能看懂
+
+用户的原话是「当前我自己操作都不流畅，即界面逻辑过于复杂」。先量了一遍面板：约 40 个 `useState`，四个页签里「总览」只放了一张状态卡加一张架构图，架构图每次切页签都重算布局，任务页默认进 7 列看板，标题下的下一步提示是灰色小字而对应按钮在另一行。
+
+三处真正的阻塞感来源：
+
+1. `client.js:2037` 的 `button()` 把 `busy` 并进 `locked`。任何一次远程调用在飞的时候，整个面板所有按钮同时置灰——用户点「刷新」后在等，期间想切页签、想复制、想读另一张卡都不行。而 `run()` 本身已有 `lock.current` 防重入，这层全局锁是纯观感负担。改为只锁调用方声明的 `disabled`，重复点击由 `run()` 拦下并写一条 `busy` 提示。
+2. 页签数量与信息密度不匹配。「总览」没有自己的内容，把它并进开发规划，架构文档折叠进去并惰性挂载；低频的上下文/导出/交接收进一个折叠块。
+3. 下一步不可见。改为 `.ep-next` 提示条：左边一句话，右边直接给主按钮，删掉原来重复的「评审计划」按钮。
+
+验证读数：`node --test tests/*.test.js` 全套件 673 项（672 pass / 1 skip，退出码 0）；`npm run check` → `syntax ok: 18 files`、`locale keys ok`、`declaration order ok`；`node scripts/check-doc-counts.mjs` → `doc counts ok: 673 tests, round 151`；`node scripts/validate-package.mjs` 通过。
+
+真机读数（页面 reload 后，`browser_eval` 读 DOM）：页签条只剩「开发规划 / 任务看板 / 质量门禁」三个；选中一个 draft 变更后 `.ep-next` 出现，文案为「下一步：完善六项准备状态、任务和验收标准，保存后交由用户评审批准。」，右侧按钮「评审方案」；折叠块列表里出现「上下文、导出与交接」「架构与设计文档」；架构折叠展开前 `.ep-diagram` 与 `svg` 均为 0，展开后 Mermaid 才挂载，确认惰性渲染生效。
+
+
+
+## 第 150 轮：插件不再接触 Git（能力下线）
+
+起点是定位问题：上一轮已经把 Git 采集交给调用方，插件仍保留了观测存储、比较算法、审批基线绑定与整套 UI。对一个流程控制插件来说，这些都是不该自持的东西——改动范围、代码基线、差异比较属于 DSH 与调用方 Agent，插件替它们保管一份，代价是 5 个模块、19 个测试文件与一屏面板。
+
+改法：整条链路删除。工具面从四个收敛为三个（`engineering_plan`/`engineering_dispatch`/`engineering_verify`），动作枚举去掉 `gitObservations`/`approvalBaselineStatus`/`scopeAudit`；审批记录只写 `planVersion`/`actor`/`recordedAt`；`gateStatus` 返回体去掉 `scope`，也不再为算路径漂移读观测；导出里的「Approval code baseline」段删除。删除文件：`src/git-facts.js`、`src/git-operations.js`、`src/git-observation-store.js`、`src/git-comparison.js`、`src/scope-audit.js`、`scripts/embed-git-comparison.mjs`、`docs/GIT-OBSERVATIONS.md`、`docs/APPROVAL-BASELINE.md`。
+
+客户端的删法值得记一笔：58 个文案键、173 行内嵌 `compareGitObservations` 打包段、22 个纯函数、9 个组件、7 组 React 状态与 5 个渲染挂点。批量删除时把 `approvePlan` 与 `nativeDispatchRequest` 的前两行一起带走，`node --check client.js` 报 `Unexpected strict mode reserved word`；恢复后自测通过。`resources` 页签保留——证据矩阵、交付评审、运行记录都在里面，只删范围审计那一行。
+
+`/engineering` 命令的文本仍是 `JSON.stringify(result)`：`tests/host.test.js` 与 `tests/verification-tool.test.js` 直接解析它，是机器契约。展示层照旧在 `conversation.chat.commandview` 折叠。
+
+验证读数：`node --test tests/*.test.js` 全套件 673 项（672 pass / 1 skip，退出码 0）；`node scripts/check-syntax.mjs` → 18 文件；`node scripts/check-declaration-order.mjs` → `declaration order ok`；`node scripts/check-locale-keys.mjs` → `locale keys ok`。客户端侧 `tests/client-*.test.js` 263 项在删键后照旧全绿，说明没有悬空的 `t("…")` 调用。**尚未**在真实宿主上重载页面复核四个页签与三个工具的实际渲染。
+
+## 第 149 轮：插件不再执行 Git（record/compare）
+
+本轮还修了门禁自身的一处缺陷：`scripts/check-doc-counts.mjs` 的 `verificationClaim` 对 `docs/VERIFICATION.md` 里所有「全套件 N 项」取最大值，套件只增不减时才成立；删掉 36 项采集器测试后（863 → 836）最大值一直指向历史条目，脚本报 `claims 855/849/863, actual is 836`。改为取第一条声明（文件从顶部逐轮追加），`tests/check-doc-counts.test.js` 增加收缩场景用例。
+
+起点是定位问题：插件自带 `src/git-collector.js`，用宿主 shell 起子进程跑 `git rev-parse`、`git status --porcelain=v2`、`git diff`，再解析输出。流程控制插件自带一套 Git 执行器，既与「借助 DSH 能力」的定位不符，也让插件体积和失败面变重。
+
+改法：`src/git-collector.js` 与 `tests/git-collector.test.js` 一并删除；事实改由调用方 Agent 通过 DSH shell 采集后随 `engineering_git` 提交。新增 `src/git-facts.js` 只做校验与组装：拒绝未知字段与 accessor（不执行 getter）、绝对路径与 `..` 逃逸、NUL、`\ufffd`、diff 超过 16 MiB、`head` 与 `headState` 矛盾；路径去重排序后截到 2000 条，`.dsh/engineering/` 前缀丢弃并记为 limitation；仓库根经 `path.resolve` 比较（win32 小写）不等于工作区时返回 `repository_outside_workspace`，不写入任何东西。模块内无 `node:child_process`、无 spawn/execFile、无 `ctx.shell`——由 `tests/git-facts.test.js` 的静态断言固定。
+
+动作语义随之收紧：`record` 必须带 `observation`、禁止 `baselineId`；`compare` 必须同时带当前 `observation` 与 `baselineId`，因为比较需要当前读数而插件不再替调用方采样。旧 `capture` 信封保留可读（`storedAction` 把它当作 `record`），`GitObservationStore` 的 request 校验同时接受两种拼写。
+
+重放身份把事实算进去：同一 `requestId` 若携带不同事实返回 `REQUEST_CONFLICT`。实现不留原始事实副本，改用 `FACT_FIELDS`（`head`/`headState`/`dirty`/`stagedDiffSha256`/`worktreeDiffSha256`/`untrackedPathsSha256`/`untrackedCount`/`changedPaths`/`untrackedPaths`/`limitations`）与本次候选观测逐项比对。
+
+验证读数：`node --test tests/*.test.js` 全套件 836 项（835 pass / 1 skip，退出码 0）；`npm run check` 语法 25 文件、本地化键无重复、声明顺序通过；`node scripts/check-doc-counts.mjs` 通过。专项：`tests/git-tool.test.js` 15 项、`tests/git-facts.test.js` 9 项、`tests/client-git.test.js` 与 `tests/git-observation-store.test.js` 全绿；`tests/git-tool.test.js` 断言 `Object.hasOwn(ctx, 'shell') === false`，即插件上下文里根本没有 shell 可用。
+
+排查过程中修掉两个自身缺陷：`git-observation-store.js` 的 request 校验原本只认 `capture`/`compare`，导致所有 `record` 请求在落盘时报 `Invalid observation request action`；`compare` 分支原先在建候选观测之前就跳过，使得"比较"没有当前读数可读。两处补齐后 15 项工具测试全绿。
+
+## 第 148 轮：会话降噪（通知式展示）
+
+起点是一条真实读数：旧会话 `session-d428891f-d9a2-4d51-bc7d-7d4c81be76f9` 的 35459 条记录里，`command/run` 与 `command/done` 各 3422 条，命令名全部是 `engineering`；`command/done` 文本中位 1250 字符、最大 12337，合计 4,330,988 字符。每次 `list` 都返回全量 `changes` JSON，会话因此看起来在「循环输出」。
+
+改动落在客户端展示层，命令文本本身仍是机器契约（`tests/host.test.js:90`、`tests/verification-tool.test.js:173` 直接 `JSON.parse`）：`commandSeverity`/`toolSeverity` 把一行判成 `alert`（error、`warnings`、`blockers`、`runs[].state === "unknown"`）或 `quiet`，quiet 行套暗色类且不渲染原始 JSON。工作台顶部新增 `.ep-notices` 通知条，仅列需要人工决策的项。
+
+验证读数：当时全套件为 863 项（862 pass / 1 skip，退出码 0）；`npm run check` 语法 25 文件、本地化键无重复、声明顺序通过；`node scripts/check-doc-counts.mjs` 通过。
+
+### 「循环输出」的执行层真因
+
+读数指向的不是渲染而是执行：工作台每 5 秒 `window.setInterval(synchronize, 5000)` 执行一次 `/engineering {"action":"list"}`，而 DSH 的命令生命周期写入是硬编码的（`@deepseek-ai/dsh-commands/lib/index.js:312` 的 `command/run`、`:319` 的 `command/done`），`recordInput:false` 只省略参数，没有静默通道。3423 次命令约等于 4.75 小时的 5 秒轮询。
+
+改为文件监听：`ctx.remote.workspaceFiles.changes(sessionId, STATE_DIRECTORY, controller.signal)`（`STATE_DIRECTORY = ".dsh/engineering/changes"`）的 for-await 帧流（`changed`/`refresh`/`ready`）驱动同步，700 ms 去抖合并突发写入，另有 120 s、仅在 `document.visibilityState === "visible"` 时的兜底，`focus`/`visibilitychange` 立即补一次；effect 依赖收窄到 `[props.sessionId]`，`busy` 改由 `busyRef` 读取。
+
+真机读数（页面 `location.reload()` 后采样）：重放历史完成后 `.ep-command` 共 13 条，22 秒后仍为 13 条（旧的 5 秒轮询会在 22 秒内新增 4 条）。第二轮采样发现两条历史 `list` 因 `blockers` 被判为 alert，判定本身是缺陷：draft 的 7 项阻塞（`APPROVAL_REQUIRED`、`TASK_NOT_TERMINAL` 等）是「还没批准」的必然结果。据此新增 `draftGate(view)`（`view.status === "draft"`，字段来自 `src/core.js:449`），在 `toolSeverity`/`toolAlert`/`toolSummary`/`commandSeverity`/`commandAlert` 五处排除，复验后 `.ep-command-alert` 归零、13 条全部为 quiet。
+
 ## 最新修复：跨进程锁释放窗口与执行参数记录
 
 2026-11-20完整回归曾出现一项失败：file locks serialize separate Node processes 实际得到 `ENOENT` 而非 `REVISION_CONFLICT`。根因是等待者在 `fs.open(lock,'wx')` 得到 `EEXIST` 后、`lstat` 之前，持有者已关闭并 `unlink` 锁；旧的 `safeFile(lock)` 把锁消失当成路径错误。修复位于 src/core.js:150-153：锁文件不存在表示“已释放”，继续下一轮独占打开；其他 `PATH_UNSAFE` 情况（符号链接、目录、硬链接）仍然抛错。
@@ -1707,4 +1792,86 @@ client.js:22 slot entry crashed in 'conversation.view': ReferenceError: Cannot a
 
 本轮开始前套件为 826 项，本轮增至 838 项。
 
-全套件 838 项。
+## 第 145 轮：工程研发进入右侧栏
+
+目标：一边看会话（处理情况），一边看工程研发。两者必须在同一屏内可见，而不是来回切视图。
+
+接口选择：`dsh-better-sidebar` 暴露 `ctx.betterSidebar` 服务，自带六个页签走的就是 `registerTab`。右侧栏那几个槽位（`rightbar.session` → `sidebar.right.pane.tab`）由该服务接管标签头与分屏，直接往槽里塞组件会没有页签头、也不能分屏，所以用 `registerTab`：
+
+```js
+ctx.effect(() => betterSidebar.registerTab({
+  id: "engineering-planner:workbench",
+  title: () => t("entry"),
+  description: () => t("sidebarTabDescription"),
+  order: 60,
+  single: true,
+  component: ({ scope }) => h(Panel, { sessionId: scope.sessionId, compact: true, sidebarMode: true }),
+}));
+```
+
+同一份 `Panel`，没有第二套界面：`compact` 只是把布局类换成 `ep-layout ep-compact`（侧栏改上下堆叠、就绪度单列、矩阵取消 `min-width`、页签按钮等分）。
+
+### 三个真实故障
+
+1. **对象形式 inject 使整个客户端模块不加载。** 最初写 `inject: { required: [...], optional: ["betterSidebar"] }`，结果 `conversation.view` 的占用者从六个变成五个——`engineering-planner` 整条消失，页签也没了。改回字符串数组。
+2. **读未声明的服务会抛。** 去掉对象形式后仍不出现，逐段二分定位到 `const betterSidebar = ctx.betterSidebar || …`——Cordis 在访问未声明服务时抛异常，`apply` 当场中止，后续注册全部没执行。改为防御式取值：
+
+```js
+let betterSidebar;
+try {
+  betterSidebar = typeof ctx.get === "function" ? ctx.get("betterSidebar") : undefined;
+} catch (cause) {
+  betterSidebar = undefined;
+}
+```
+
+3. **补丁锚点命中内嵌 Mermaid。** 首版把 CSS 插在「第一个 ``;` `」处，命中的是第 10 行内嵌 Mermaid 的反引号字符串末尾，`node --check` 直接 `SyntaxError`。脚本改为对每个锚点断言「存在且唯一」，失败即中止，并用备份 `C:/Users/LH/AppData/Local/Temp/client.before-sidebar.js` 恢复。
+
+二分记录：locale + css + panel + root → 页签正常；再加 consts → 消失；consts 换成 try/catch → 恢复；再加 tab 注册 → 仍然正常。
+
+### 真实读数（DOM）
+
+- 会话视图列表出现第六个页签「工程研发」（`conversation.view` 占用者恢复为六个）。
+- 选中变更后开发规划页出现「在侧边栏打开」按钮；未选变更时不出现（卡片随变更渲染）。
+- 点击后右侧栏打开，标签为「工程研发」，与「Git」「任务管理」并列；侧栏内同样是四个页签（开发规划/架构设计/任务看板/质量门禁）与「评审方案」「恢复上下文」「导出 Markdown」「填入会话」「复制」。
+- `.ep-layout` 计数 2：`ep-compact` 1、非 compact 1。侧栏实例不显示「在侧边栏打开」卡片（`!compact` 条件成立时才会渲染）。
+- 侧栏没有会话输入框，因此 `insertChatText` 在 `compact && !props.inputActions` 时改为复制到剪贴板并提示「侧边栏里没有会话输入框，已改为复制到剪贴板。」
+
+### 门禁
+
+`tests/client-sidebar.test.js` 7 项（descriptor 字段、`ctx.betterSidebar` 不得被直接读取、`inject` 必须仍为数组、compact 只换类不换组件、无输入框时回退剪贴板、入口卡只在全宽视图出现且调用同一页签、四个键各声明一次）。全套件 845 项。
+
+## 第 146 轮：对话流里的工程研发行
+
+问题：每次 `engineering_plan` 调用都把结果 JSON 直接铺进对话流，一屏里十几行 `engineering {"changes":[...]}`。
+
+成因：四个工具没有在 `tool.call.toolview` 登记渲染器，落到通用行，通用行原样打印工具返回。槽位目录里 `already taken` 含 bash/read/grep/subagent 等，不含 `engineering_*`。
+
+做法：按线名为四个工具各注册一行（`ctx.slots.inject("tool.call.toolview", () => ctx.slots.register({ name, key }, EngineeringToolRow))`）。行是一行摘要 `工程研发 · plan · list · 4 个变更`，`<details>` 展开才是原始 JSON，且截断到 1200 字符。行本身不用任何 hook（只用 `<details>/<summary>/<pre>`），因此不依赖所在节点的 hook 上下文。
+
+摘要只读 `block.arguments|args` 与 `block.result|output` 的既有字段（action/changeId/taskId/changes/runs/tasks/state/status/exitCode/ready/blockers），取不到就只显示工具名，不回退成打印全文。
+
+门禁：`tests/client-toolview.test.js` 4 项（四个 key 都注册、摘要字段来源、原文截断与异常兜底、行不含 hook）。全套件 849 项。
+
+## 第 147 轮：三项需求收口（侧栏、工具行、命令行的 JSON 折叠）
+
+用户反馈 145/146 两轮"修复失败"。逐条复核后确认三个各自独立的缺陷：
+
+1. **侧栏注册靠手动取服务。** 145 轮为绕开「读未声明服务会抛」用了 `ctx.get("betterSidebar")` + try/catch：`apply` 不再中断，但这条依赖从未被声明，Cordis 不会在服务就绪后回调，页签是否出现取决于插件加载顺序。改为正规动态依赖 `ctx.inject(["betterSidebar"], (sidebarCtx) => { … sidebarCtx.effect(() => service.registerTab({…})) })`，模块级 `inject` 仍是字符串数组。
+2. **工具行读错字段。** `ToolResultNode`（records.ts:163-185）没有 `result`/`output`，返回 JSON 只在 `content` 的 text 块里，所以摘要恒为空、只剩工具名。改为遍历 `block.content` 取 text 块再 `JSON.parse`；参数优先 `block.call.argsRaw`；摘要计数走 `t("cmdTasks", { count })` 等双语键，不再硬编码中文。
+3. **命令行的 JSON 没人折叠。** `/engineering` 的 text 必须保持 `JSON.stringify(result)`（`tests/host.test.js:90`、`tests/verification-tool.test.js:173` 直接 `JSON.parse`，是机器契约），所以不能改 Host 输出。改为在客户端注册 `conversation.chat.commandview`（key `engineering`）：解析 `node.outcome.text`，折成「工程研发 · list · N 个变更」+ 每个变更一行（id 前 8 位/标题/状态/vN/revN/任务数），列表最多 8 行，其余汇总；原始 JSON 放在同一 `<details>` 里截断到 1500 字符。
+
+失败或运行中的命令仍有行：`outcome === null` 显示「执行中」，`outcome.kind === "error"` 追加「失败」并展示错误原文。
+
+门禁：`tests/client-command-row.test.js` 5 项；`tests/client-toolview.test.js` 5 项（改为断言不得直读 `block.result ?? block.output`）；`tests/client-sidebar.test.js` 7 项（改为断言 `ctx.inject(["betterSidebar"]` 与「不得出现 `ctx.get("betterSidebar")`」）。当时全套件为 855 项（854 pass / 1 可选 Chromium skip），`node --test tests/*.test.js` 退出码 0；`npm run check` → `syntax ok: 25 files`、`locale keys ok`、`declaration order ok`。
+
+### 真实读数（重载后的页面）
+
+页面导航重载后，插件客户端半边换成磁盘上的新 `client.js`，实测：
+
+- 页签条出现两个「工程研发」：一个 `conversation.view`，一个右侧栏 `betterSidebar` 页签；`.ep-layout` 计数 1、`.ep-compact` 计数 1——侧栏实例已挂载并走 compact 分支。
+- 在会话输入框执行 `/engineering {"action":"list"}`：命令行节点渲染为一行「工程研发 · list · 4 个变更」，不再铺 JSON。
+- 展开该行后：明细四行（`· 3c83caa4 · 原生研发闭环正向验收（只读派发与固定输出） · running · v1 · rev 11` 等），原始 JSON 在同一 `<details>` 内，读取长度 1256 字符（上限 1500）。
+- 未展开时明细与原文的 `innerText` 均为空——`<details>` 折叠确实生效，JSON 不再占据对话高度。
+
+工具行的解析路径本轮只由结构测试覆盖：当前会话与侧栏里没有 `engineering_*` 工具调用可作真实读数，需在含工具调用的会话里复核。

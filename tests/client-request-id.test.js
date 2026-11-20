@@ -16,7 +16,6 @@ test('request ids live outside the component so a remount reuses them', () => {
   assert.match(source, /const requestMaps = new Map\(\);/);
   assert.match(source, /function requestMapFor\(sessionId, kind\)/);
   assert.match(source, /React\.useRef\(requestMapFor\(props\.sessionId, "dispatch"\)\)/);
-  assert.match(source, /React\.useRef\(requestMapFor\(props\.sessionId, "git"\)\)/);
   // The per-session maps must be dropped with the plugin, not leaked for the life of the app.
   const cleanup = slice('ctx.effect(() => () => {', 'requestMaps.clear();');
   assert.ok(cleanup.includes('draftCache.clear();'));

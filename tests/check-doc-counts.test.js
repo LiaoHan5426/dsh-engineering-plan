@@ -11,8 +11,11 @@ test('README keeps a single current-suite claim', () => {
   assert.equal(readmeClaim('没有声明'), null);
 });
 
-test('the newest verification entry wins over historical numbers', () => {
-  assert.equal(verificationClaim('- 全套件 528 项\n- 全套件 537 项\n- 全套件 540 项'), 540);
+// 文件是从顶部追加的，所以第一条就是最新一轮。曾经取最大值，第 149 轮套件从 863 降到 836
+// 之后最大值指向历史条目，脚本一直误报 863。
+test('the newest verification entry is the first claim in the file', () => {
+  assert.equal(verificationClaim('- 全套件 540 项\n- 全套件 537 项\n- 全套件 528 项'), 540);
+  assert.equal(verificationClaim('- 全套件 836 项\n- 全套件 863 项'), 836);
   assert.equal(verificationClaim('无'), null);
 });
 

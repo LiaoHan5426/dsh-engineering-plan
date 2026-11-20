@@ -78,7 +78,7 @@ test('the copy payload carries the abandonment draft so it can be reproduced', (
 });
 
 test('the plan draft and the run drafts are each cleared by their own rule', () => {
-  const ls = source.slice(source.indexOf('          const loadChange = '), source.indexOf('          async function command('));
+  const ls = source.slice(source.indexOf('          const loadChange = '), source.indexOf('          async function sendCommand('));
   assert.match(ls, /if \(abandonedKey\) setAbandonment\(\(previous\) => Object\.fromEntries\(Object\.entries\(previous\)\.filter\(\(\[key\]\) => key !== abandonedKey\)\)\);/);
   assert.match(ls, /else if \(!preserveRuntime\) setAbandonment\(\{\}\);/);
 });

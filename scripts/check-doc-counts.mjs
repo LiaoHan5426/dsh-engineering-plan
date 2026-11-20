@@ -24,10 +24,13 @@ export function readmeTally(text) {
   return { total: Number(match[1]), pass: Number(match[2]), skip: Number(match[3]) };
 }
 
-/** docs/VERIFICATION.md 是逐轮追加的，历史数字保留；当前值取最大值（只会单调增长）。 */
+/**
+ * docs/VERIFICATION.md 是逐轮**从顶部**追加的，历史数字保留；当前值就是第一处声明。
+ * 不能取最大值：第 149 轮删除采集器测试后套件从 863 降到 836，取最大值会把历史数字当成当前值。
+ */
 export function verificationClaim(text) {
-  const values = [...text.matchAll(/全套件\s*(\d+)\s*项/g)].map((match) => Number(match[1]));
-  return values.length ? Math.max(...values) : null;
+  const match = /全套件\s*(\d+)\s*项/.exec(text);
+  return match ? Number(match[1]) : null;
 }
 
 /** docs/DELIVERY-STATUS.md 顶部同时声明套件数与「更新：…（第 N 轮）」；两处都会漂移。 */

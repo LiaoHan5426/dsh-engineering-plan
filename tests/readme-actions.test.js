@@ -30,7 +30,7 @@ test('human-only actions are documented but never exposed as tool actions', () =
 });
 
 test('read-only actions are marked concurrency safe and writes are not', () => {
-  const readOnly = ['list', 'get', 'context', 'verificationRuns', 'dispatchRuns', 'gitObservations', 'approvalBaselineStatus', 'gateStatus', 'readyTasks', 'scopeAudit'];
+  const readOnly = ['list', 'get', 'context', 'verificationRuns', 'dispatchRuns', 'gateStatus', 'readyTasks'];
   const line = host.split('\n').find((l) => l.includes('isConcurrencySafe:')) || '';
   for (const name of readOnly) {
     assert.ok(line.includes("'" + name + "'"), `${name} should be in the concurrency-safe list`);

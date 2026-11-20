@@ -72,5 +72,3 @@ export function readTerminationEvidence(value) {
 
   return { confirmed: true, checkedAt, scope: SCOPE, basis, references: copy };
 }
-
-export const TERMINATION_SCOPE = SCOPE;

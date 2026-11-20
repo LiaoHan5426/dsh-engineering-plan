@@ -93,7 +93,7 @@ test('actual human submit uses command only, timestamp and CAS; clears only the 
   assert.equal(h.forms[form().key], undefined);
   assert.equal(h.forms[other.key], other);
   assert.deepEqual(h.loads[0][1], { preserveRuntime: true, submitted: 'resolveDispatchUnknown' });
-  const command = extract('command', '          ', true);
+  const command = extract('sendCommand', '          ', true);
   assert.ok(command.includes('ctx.remote.commands.execute('));
   assert.ok(command.includes('"/engineering " + JSON.stringify(input)'));
 });
@@ -159,7 +159,7 @@ test('navigation guard includes dispatch runtime drafts independently from plan 
 
 test('actual loadChange after dispatch resolution preserves all unrelated runtime inputs', () => {
   const start = source.indexOf('          const loadChange = ');
-  const end = source.indexOf('          async function command(', start);
+  const end = source.indexOf('          async function sendCommand(', start);
   const expression = source.slice(start, end).trim().replace(/^const loadChange = /, '').replace(/;$/, '');
   const touched = [];
   const setters = [...new Set(expression.match(/set[A-Z]\w+/g))];

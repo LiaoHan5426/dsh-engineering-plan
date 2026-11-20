@@ -7,7 +7,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createOperations, parameters } from '../index.js';
 import { DispatchRunStore } from '../src/dispatch-store.js';
 import { VerificationRunStore } from '../src/verification-store.js';
-import { GitObservationStore } from '../src/git-observation-store.js';
 
 const task = id => ({ id, title: `Task ${id}`, description: '', dependencies: [], expectedFiles: [`src/${id}.js`], acceptanceCriteria: ['Review'], verificationCommands: [`echo ${id}`] });
 
@@ -126,33 +125,4 @@ test('gateStatus is exposed to the model as a read-only action', async t => {
   await assert.rejects(f.op({ action: 'gateStatus', changeId: f.changeId, expectedRevision: 9 }, f.agent, 'agent'), /Invalid action fields/);
   await assert.rejects(f.op({ action: 'gateStatus' }, f.agent, 'agent'), /Invalid/);
   await assert.rejects(f.op({ action: 'gateStatus', changeId: f.changeId }, f.agent, 'agent', { aborted: true }), /ENGINEERING_CANCELLED/);
-});
-
-test('gateStatus reports scope drift without making it a blocker', async (t) => {
-  const f = await fixture(t);
-  const bare = await gate(f);
-  assert.equal(bare.scope.state, 'no_observation');
-  assert.equal(bare.scope.observationId, null);
-  assert.ok(!bare.blockers.some(blocker => String(blocker.code).startsWith('SCOPE')));
-
-  const record = {
-    schemaVersion: 1, id: randomUUID(), changeId: f.changeId, planVersion: 1, sourceRevision: 1,
-    actor: { kind: 'agent', id: 'session-a' }, capturedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:01.000Z',
-    workspaceRoot: f.root, repositoryRoot: f.root, collectorVersion: 'git-observation-v1', status: 'ok',
-    head: 'c'.repeat(40), headState: 'commit', dirty: true,
-    scope: { tracked: 'git-diff', untracked: 'paths-only', ignored: 'excluded', excludedPaths: ['.dsh/engineering/**'] },
-    stagedDiffSha256: 'a'.repeat(64), worktreeDiffSha256: 'a'.repeat(64), untrackedPathsSha256: 'a'.repeat(64),
-    untrackedCount: 0, limitations: [], error: null,
-    changedPaths: ['docs/undecided.md', 'src/a.js'], untrackedPaths: [],
-  };
-  const created = await new GitObservationStore(f.root).create(f.changeId, record, { requestId: 'req-scope', ownerSessionId: 'session' });
-  const result = await gate(f);
-  assert.equal(result.scope.state, 'included');
-  assert.equal(result.scope.observationId, created.observation.id);
-  assert.equal(result.scope.changedCount, 2);
-  assert.equal(result.scope.pathCount, 2);
-  assert.equal(result.scope.declaredCount, 1);
-  assert.equal(result.scope.undeclaredCount, 1);
-  // Scope drift is information: readiness still depends only on the real blockers.
-  assert.ok(!result.blockers.some(blocker => String(blocker.code).startsWith('SCOPE')));
 });
