@@ -16,6 +16,7 @@
 - 文档：记录「插件热启停后 `conversation.view` 注册变为 inactive、页签空白」的定位过程与判据（`cordis_inspect_query` 前后对比），并说明需页面重载恢复。
 - 修复：「质量门禁」页签渲染崩溃（`ReferenceError: Cannot access 'selectedTask' before initialization`）——第 106 轮插入的 `postMortem` 读取了下一行才声明的 `selectedTask`。
 - 新增 `scripts/check-declaration-order.mjs` 与 `tests/declaration-order.test.js`（5 项），并入 `npm run check`。
+- 记录：浅色主题下「质量门禁」页对比度实测全部通过 AA（正文 18.9:1、次要文字 5.8:1）；宿主壳层页签 4.23:1 属宿主问题。
 ## 0.3.0
 
 ### 观测记录的崩溃注入

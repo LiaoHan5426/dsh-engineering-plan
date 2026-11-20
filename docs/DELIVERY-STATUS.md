@@ -1,6 +1,6 @@
 # 原方案阶段交付状态
 
-更新：2026-11-20（第 142 轮）｜套件 826 项（825 pass / 1 skip）。**不作为整体完成声明**：本表按阶段列出实现与待办，只有「验证证据」一栏写下的真实读数才算证据。
+更新：2026-11-20（第 143 轮）｜套件 826 项（825 pass / 1 skip）。**不作为整体完成声明**：本表按阶段列出实现与待办，只有「验证证据」一栏写下的真实读数才算证据。
 
 「验证证据」一列只写真正发生过的读数：真实界面 DOM 读数、原生工具返回、真实子 Agent/命令运行。只有单元测试支撑的，会明确写「仅测试」。
 
@@ -16,6 +16,8 @@
 | P2 agent-adapter | 使用原生父 Agent 路由的单任务派发 | 原生契约核实；外部 provider（codex/claude-code）实际 `availability: missing`，方案写入 `docs/EXTERNAL-AGENT-ADAPTER.md` | 独立外部 Agent 适配 |
 | P2 knowledge | 来源分类（reference/verified/assumption）、文档与发现导出、范围审计 | 核心保存/导出测试；`scopeAudit` 真机读数 | 项目知识服务接入 |
 ## 最近已核实证据
+- 第 143 轮：浅色主题下「质量门禁」页实测——卡片正文 18.9:1、`.ep-muted` 5.8:1、`.ep-warn`/`.ep-success`/`.ep-badge`/矩阵单元格/插件页签均 18.9:1，全部通过 AA；宿主壳层视图页签 4.23:1（宿主 token，非插件）。切回深色后 `body rgb(21,21,23)`、卡片 `rgb(35,35,36)` 复原。
+
 - 第 142 轮：正向闭环由用户本人走完——`9dd058d6` 的 `deliveryAcceptance = { planVersion 1, actor user: session-d428891f-…, acceptedAt 2026-11-20T10:27:49.649Z, note "确认" }`，`state.revision 11 / status completed`，任务带 4 条证据；界面同步显示「当前版本已确认交付」。TDZ 修复后「质量门禁」页签在真实页面正常渲染。
 
 - 第 140 轮：控制台实读 `ReferenceError: Cannot access 'selectedTask' before initialization`（`resourcesView`）导致 `conversation.view` 整槽崩溃；已修（声明顺序），并新增 `check-declaration-order` 门禁（真实 `client.js` 通过、构造缺陷被报出）。
